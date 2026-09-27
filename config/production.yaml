@@ -1,0 +1,5 @@
+---
+environment: production
+aws_region: us-east-1
+log_retention_days: 90
+enable_tracing: true

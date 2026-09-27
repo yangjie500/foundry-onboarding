@@ -1,0 +1,17 @@
+{
+  "name": "foundry-onboarding",
+  "version": "1.0.0",
+  "description": "Foundry onboarding using AWS Lambda and Step Functions",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "aws-cdk": "^2.1142.0"
+  }
+}

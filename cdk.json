@@ -1,0 +1,7 @@
+{
+    "app": "uv run --locked python app.py",
+    "context": {
+        "@aws-cdk/core:checkSecretUsage": true,
+        "@aws-cdk/core:validateSnapshotRemovalPolicy": true
+    }
+}
