@@ -1,0 +1,128 @@
+from collections.abc import Mapping
+
+import pytest
+import yaml
+from pydantic import ValidationError
+
+from infrastructure.configuration import (
+    EnvironmentConfig,
+    EnvironmentName,
+    load_environment_config,
+)
+
+
+def _valid_config() -> dict[str, object]:
+    return {
+        "environment": "dev",
+        "aws_region": "us-east-1",
+        "lambda_function": {
+            "memory_size_mb": 256,
+            "timeout_seconds": 30,
+        },
+        "workflow": {
+            "timeout_seconds": 300,
+            "retry": {
+                "interval_seconds": 2,
+                "max_attempts": 3,
+                "backoff_rate": 2.0,
+            },
+        },
+        "observability": {
+            "log_retention_days": 14,
+            "enable_tracing": True,
+            "workflow_log_level": "ALL",
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("environment", "retention_days", "workflow_log_level"),
+    [
+        ("dev", 14, "ALL"),
+        ("staging", 30, "ALL"),
+        ("production", 90, "ERROR"),
+    ],
+)
+def test_load_environment_config(
+    environment: EnvironmentName,
+    retention_days: int,
+    workflow_log_level: str,
+) -> None:
+    config = load_environment_config(environment)
+
+    assert config.environment == environment
+    assert config.lambda_function.memory_size_mb == 256
+    assert config.lambda_function.timeout_seconds == 30
+    assert config.workflow.timeout_seconds == 300
+    assert config.workflow.retry.max_attempts == 3
+    assert config.observability.log_retention_days == retention_days
+    assert config.observability.workflow_log_level == workflow_log_level
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    [
+        ("lambda_function", "memory_size_mb", 127),
+        ("lambda_function", "timeout_seconds", 901),
+        ("workflow", "timeout_seconds", 0),
+        ("observability", "log_retention_days", 7),
+        ("observability", "workflow_log_level", "DEBUG"),
+    ],
+)
+def test_environment_config_rejects_invalid_settings(
+    section: str,
+    field: str,
+    value: object,
+) -> None:
+    raw_config = _valid_config()
+    section_config = raw_config[section]
+    assert isinstance(section_config, dict)
+    section_config[field] = value
+
+    with pytest.raises(ValidationError):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_rejects_invalid_retry_settings() -> None:
+    raw_config = _valid_config()
+    workflow = raw_config["workflow"]
+    assert isinstance(workflow, dict)
+    retry = workflow["retry"]
+    assert isinstance(retry, dict)
+    retry["max_attempts"] = -1
+
+    with pytest.raises(ValidationError):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_rejects_unknown_fields() -> None:
+    raw_config = _valid_config()
+    raw_config["secret"] = "must not be accepted"
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_is_immutable() -> None:
+    config = EnvironmentConfig.model_validate(_valid_config())
+
+    with pytest.raises(ValidationError, match="Instance is frozen"):
+        config.aws_region = "us-west-2"
+
+
+def test_loaded_environment_must_match_requested_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_config = _valid_config()
+    raw_config["environment"] = "staging"
+
+    def fake_safe_load(_stream: object) -> Mapping[str, object]:
+        return raw_config
+
+    monkeypatch.setattr(yaml, "safe_load", fake_safe_load)
+
+    with pytest.raises(
+        ValueError,
+        match="Configuration environment 'staging' does not match requested environment 'dev'",
+    ):
+        load_environment_config("dev")

@@ -9,6 +9,7 @@ from infrastructure.configuration import EnvironmentConfig
 from infrastructure.constructs.observability import (
     log_removal_policy_for,
     log_retention_for,
+    workflow_log_level_for,
 )
 
 
@@ -53,6 +54,7 @@ class GenericWorkflow(Construct):
             retry_on_service_exceptions=False,
         )
 
+        retry = config.workflow.retry
         invoke_processor.add_retry(
             errors=[
                 "Lambda.ServiceException",
@@ -60,9 +62,9 @@ class GenericWorkflow(Construct):
                 "Lambda.SdkClientException",
                 "Lambda.TooManyRequestsException",
             ],
-            interval=Duration.seconds(2),
-            backoff_rate=2,
-            max_attempts=3,
+            interval=Duration.seconds(retry.interval_seconds),
+            backoff_rate=retry.backoff_rate,
+            max_attempts=retry.max_attempts,
             jitter_strategy=sfn.JitterType.FULL,
         )
 
@@ -135,11 +137,11 @@ class GenericWorkflow(Construct):
             state_machine_name=state_machine_name,
             definition_body=sfn.DefinitionBody.from_chainable(definition),
             state_machine_type=sfn.StateMachineType.STANDARD,
-            timeout=Duration.minutes(5),
+            timeout=Duration.seconds(config.workflow.timeout_seconds),
             logs=sfn.LogOptions(
                 destination=self.log_group,
-                level=sfn.LogLevel.ALL,
+                level=workflow_log_level_for(config),
                 include_execution_data=False,
             ),
-            tracing_enabled=config.enable_tracing,
+            tracing_enabled=config.observability.enable_tracing,
         )

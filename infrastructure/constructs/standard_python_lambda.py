@@ -46,11 +46,13 @@ class StandardPythonLambda(Construct):
             architecture=lambda_.Architecture.X86_64,
             handler=handler,
             code=code,
-            memory_size=256,
-            timeout=Duration.seconds(30),
+            memory_size=config.lambda_function.memory_size_mb,
+            timeout=Duration.seconds(config.lambda_function.timeout_seconds),
             environment={"APP_ENV": config.environment},
             tracing=(
-                lambda_.Tracing.ACTIVE if config.enable_tracing else lambda_.Tracing.DISABLED
+                lambda_.Tracing.ACTIVE
+                if config.observability.enable_tracing
+                else lambda_.Tracing.DISABLED
             ),
             logging_format=lambda_.LoggingFormat.JSON,
             application_log_level_v2=lambda_.ApplicationLogLevel.INFO,

@@ -1,5 +1,4 @@
 import aws_cdk as cdk
-import pytest
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk.assertions import Match, Template
 
@@ -17,8 +16,23 @@ def _config(
         {
             "environment": environment,
             "aws_region": "us-east-1",
-            "log_retention_days": log_retention_days,
-            "enable_tracing": enable_tracing,
+            "lambda_function": {
+                "memory_size_mb": 256,
+                "timeout_seconds": 30,
+            },
+            "workflow": {
+                "timeout_seconds": 300,
+                "retry": {
+                    "interval_seconds": 2,
+                    "max_attempts": 3,
+                    "backoff_rate": 2.0,
+                },
+            },
+            "observability": {
+                "log_retention_days": log_retention_days,
+                "enable_tracing": enable_tracing,
+                "workflow_log_level": "ALL",
+            },
         }
     )
 
@@ -98,8 +112,3 @@ def test_standard_python_lambda_retains_production_logs() -> None:
             "Properties": Match.object_like({"RetentionInDays": 90}),
         },
     )
-
-
-def test_standard_python_lambda_rejects_unsupported_log_retention() -> None:
-    with pytest.raises(ValueError, match="Unsupported log retention of 7 days"):
-        _template(_config(log_retention_days=7))

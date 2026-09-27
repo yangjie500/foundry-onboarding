@@ -1,5 +1,19 @@
 ---
 environment: dev
 aws_region: us-east-1
-log_retention_days: 14
-enable_tracing: true
+
+lambda_function:
+  memory_size_mb: 256
+  timeout_seconds: 30
+
+workflow:
+  timeout_seconds: 300
+  retry:
+    interval_seconds: 2
+    max_attempts: 3
+    backoff_rate: 2.0
+
+observability:
+  log_retention_days: 14
+  enable_tracing: true
+  workflow_log_level: ALL

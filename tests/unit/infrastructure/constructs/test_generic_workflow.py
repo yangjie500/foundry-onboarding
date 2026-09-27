@@ -14,13 +14,29 @@ def _config(
     environment: str = "dev",
     log_retention_days: int = 14,
     enable_tracing: bool = True,
+    workflow_log_level: str = "ALL",
 ) -> EnvironmentConfig:
     return EnvironmentConfig.model_validate(
         {
             "environment": environment,
             "aws_region": "us-east-1",
-            "log_retention_days": log_retention_days,
-            "enable_tracing": enable_tracing,
+            "lambda_function": {
+                "memory_size_mb": 256,
+                "timeout_seconds": 30,
+            },
+            "workflow": {
+                "timeout_seconds": 300,
+                "retry": {
+                    "interval_seconds": 2,
+                    "max_attempts": 3,
+                    "backoff_rate": 2.0,
+                },
+            },
+            "observability": {
+                "log_retention_days": log_retention_days,
+                "enable_tracing": enable_tracing,
+                "workflow_log_level": workflow_log_level,
+            },
         }
     )
 
@@ -187,7 +203,13 @@ def test_generic_workflow_configures_safe_development_logs() -> None:
 
 
 def test_generic_workflow_retains_production_logs() -> None:
-    template = _template(_config(environment="production", log_retention_days=90))
+    template = _template(
+        _config(
+            environment="production",
+            log_retention_days=90,
+            workflow_log_level="ERROR",
+        )
+    )
 
     template.has_resource(
         "AWS::Logs::LogGroup",
@@ -201,6 +223,10 @@ def test_generic_workflow_retains_production_logs() -> None:
                 }
             ),
         },
+    )
+    template.has_resource_properties(
+        "AWS::StepFunctions::StateMachine",
+        {"LoggingConfiguration": {"Level": "ERROR"}},
     )
 
 
