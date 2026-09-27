@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "request_id": "8e95a486-d4e4-4aee-afc7-327f029311ee",
+  "status": "succeeded",
+  "result": {
+    "message": "Hello from Step Functions"
+  }
+}

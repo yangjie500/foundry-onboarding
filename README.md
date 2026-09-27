@@ -9,3 +9,12 @@ Run the complete local quality gate:
 
 ```bash
 make check ENV=dev
+```
+
+## Workflow contract
+
+The initial generic workflow contract is documented in
+[docs/generic-workflow-contract.md](docs/generic-workflow-contract.md).
+
+Representative workflow-start events are under `events/workflows/`. Lambda
+invocation and expected-output fixtures are under `events/functions/`.

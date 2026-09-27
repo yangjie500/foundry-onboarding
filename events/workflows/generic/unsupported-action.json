@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "request_id": "7cb1af56-c434-4fa3-be89-6e7cd904dd96",
+  "action": "create_user",
+  "payload": {
+    "message": "This action is not supported yet"
+  }
+}
