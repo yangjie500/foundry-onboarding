@@ -1,15 +1,13 @@
-from aws_cdk import Duration, RemovalPolicy
+from aws_cdk import Duration
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_logs as logs
 from constructs import Construct
 
 from infrastructure.configuration import EnvironmentConfig
-
-_RETENTION_BY_DAYS = {
-    14: logs.RetentionDays.TWO_WEEKS,
-    30: logs.RetentionDays.ONE_MONTH,
-    90: logs.RetentionDays.THREE_MONTHS,
-}
+from infrastructure.constructs.observability import (
+    log_removal_policy_for,
+    log_retention_for,
+)
 
 
 class StandardPythonLambda(Construct):
@@ -31,27 +29,12 @@ class StandardPythonLambda(Construct):
     ) -> None:
         super().__init__(scope, construct_id)
 
-        try:
-            retention = _RETENTION_BY_DAYS[config.log_retention_days]
-        except KeyError as error:
-            supported_days = ", ".join(str(days) for days in sorted(_RETENTION_BY_DAYS))
-            raise ValueError(
-                f"Unsupported log retention of {config.log_retention_days} days; "
-                f"expected one of: {supported_days}"
-            ) from error
-
-        removal_policy = (
-            RemovalPolicy.RETAIN
-            if config.environment == "production"
-            else RemovalPolicy.DESTROY
-        )
-
         self.log_group = logs.LogGroup(
             self,
             "LogGroup",
             log_group_name=f"/aws/lambda/{function_name}",
-            retention=retention,
-            removal_policy=removal_policy,
+            retention=log_retention_for(config),
+            removal_policy=log_removal_policy_for(config),
         )
 
         self.function = lambda_.Function(
