@@ -1,10 +1,16 @@
 ENV ?= dev
 
-.PHONY: install format lint typecheck test synth check diff deploy
+.PHONY: install requirements package format lint typecheck test synth check diff deploy
 
 install:
 	npm ci
 	uv sync --locked
+
+requirements:
+	uv export --locked --only-group lambda-generic --no-emit-project --format requirements.txt --output-file requirements/generic-processor.txt
+
+package: requirements
+	./scripts/build-lambda-asset.sh
 
 format:
 	uv run ruff format .

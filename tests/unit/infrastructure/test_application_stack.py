@@ -2,6 +2,7 @@ from typing import Any, cast
 
 import aws_cdk as cdk
 import pytest
+from aws_cdk import aws_lambda as lambda_
 from aws_cdk.assertions import Match, Template
 
 from infrastructure.configuration import EnvironmentName, load_environment_config
@@ -15,6 +16,9 @@ def _template(environment: EnvironmentName = "dev") -> Template:
         app,
         f"test-foundry-{environment}",
         config=config,
+        generic_processor_code=lambda_.Code.from_inline(
+            "def handler(event, context): return event"
+        ),
         env=cdk.Environment(
             account="111111111111",
             region=config.aws_region,
@@ -22,6 +26,25 @@ def _template(environment: EnvironmentName = "dev") -> Template:
     )
 
     return Template.from_stack(stack)
+
+
+def test_application_stack_defaults_to_packaged_processor_asset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asset_paths: list[str] = []
+
+    def code_from_asset(path: str) -> lambda_.Code:
+        asset_paths.append(path)
+        return lambda_.Code.from_inline("def handler(event, context): return event")
+
+    monkeypatch.setattr(lambda_.Code, "from_asset", code_from_asset)
+
+    app = cdk.App()
+    config = load_environment_config("dev")
+    ApplicationStack(app, "test-default-asset", config=config)
+
+    assert len(asset_paths) == 1
+    assert asset_paths[0].endswith("/build/generic-processor")
 
 
 def _logical_id(template: Template, resource_type: str) -> str:

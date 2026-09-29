@@ -17,6 +17,7 @@ _WORKFLOW_LOG_LEVELS = {
     "OFF": sfn.LogLevel.OFF,
 }
 
+
 def log_retention_for(config: EnvironmentConfig) -> logs.RetentionDays:
     """Return the CDK retention value selected by application configuration."""
 

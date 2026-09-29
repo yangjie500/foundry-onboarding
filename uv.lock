@@ -217,12 +217,6 @@ wheels = [
 name = "foundry-onboarding"
 version = "0.1.0"
 source = { virtual = "." }
-dependencies = [
-    { name = "aws-cdk-lib" },
-    { name = "constructs" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -232,14 +226,17 @@ dev = [
     { name = "ruff" },
     { name = "types-pyyaml" },
 ]
+infra = [
+    { name = "aws-cdk-lib" },
+    { name = "constructs" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+lambda-generic = [
+    { name = "pydantic" },
+]
 
 [package.metadata]
-requires-dist = [
-    { name = "aws-cdk-lib", specifier = ">=2.269.0" },
-    { name = "constructs", specifier = ">=10.8.1" },
-    { name = "pydantic", specifier = ">=2.13.5" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-]
 
 [package.metadata.requires-dev]
 dev = [
@@ -249,6 +246,13 @@ dev = [
     { name = "ruff", specifier = ">=0.16.8" },
     { name = "types-pyyaml", specifier = ">=6.0.12.20260906" },
 ]
+infra = [
+    { name = "aws-cdk-lib", specifier = ">=2.269.0" },
+    { name = "constructs", specifier = ">=10.8.1" },
+    { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
+lambda-generic = [{ name = "pydantic", specifier = ">=2.13.5" }]
 
 [[package]]
 name = "iniconfig"
