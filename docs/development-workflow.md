@@ -34,6 +34,17 @@ make check ENV=dev
 `make package` automatically runs `make requirements`, so it is unnecessary to
 run both commands during the normal workflow.
 
+Before the first AWS diff or deployment from a new machine, configure and log
+in to the development account as described in
+[AWS SSO authentication](#aws-sso-authentication). Then confirm that the target
+AWS account and Region have been prepared for CDK by following
+[CDK bootstrap](#cdk-bootstrap).
+
+Bootstrapping is normally an account-and-Region setup task rather than a
+per-machine task. If the shared `CDKToolkit` stack already exists and the
+current SSO identity can assume its roles, do not create another bootstrap
+stack; continue with `make diff ENV=dev`.
+
 ## Dependency groups
 
 Dependencies are separated by where they are used:
@@ -212,6 +223,107 @@ Then review the proposed infrastructure changes:
 
 ```bash
 make diff ENV=dev
+```
+
+## CDK bootstrap
+
+CDK bootstrapping prepares one AWS account and Region for CDK deployments. It
+deploys a shared CloudFormation stack named `CDKToolkit`; it does not deploy the
+`foundry-dev` application stack.
+
+The default bootstrap stack provides resources used by CDK, including:
+
+- An S3 bucket for file assets such as the packaged Lambda code.
+- An ECR repository for projects that publish container image assets.
+- A lookup role for reading AWS context during synthesis and deployment.
+- File- and image-publishing roles for uploading deployment assets.
+- A deployment role used by the CDK CLI.
+- A CloudFormation execution role that creates the application resources.
+- An SSM parameter that records the bootstrap template version.
+
+For this project, `make package` creates `build/generic-processor` locally. CDK
+then packages that directory and uploads it to the bootstrap S3 bucket before
+CloudFormation creates or updates the Lambda function.
+
+Bootstrap status is specific to an account and Region. Check the development
+environment with:
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name CDKToolkit \
+  --region us-east-1 \
+  --query 'Stacks[0].StackStatus' \
+  --output text
+```
+
+`CREATE_COMPLETE` or `UPDATE_COMPLETE` means the bootstrap stack exists. If
+CloudFormation reports that `CDKToolkit` does not exist, an authorized
+administrator can bootstrap the currently selected account:
+
+```bash
+development_account_id=$(aws sts get-caller-identity --query Account --output text)
+npx cdk bootstrap "aws://${development_account_id}/us-east-1"
+```
+
+Bootstrapping creates shared IAM roles, an S3 bucket, an ECR repository, and
+other account-level deployment resources. Confirm the account ID and coordinate
+with the AWS administrator before running it. The operation normally needs to
+be performed once per account and Region, although it may be rerun later to
+update the bootstrap template.
+
+### Bootstrap lifecycle and cleanup
+
+Do not delete `CDKToolkit` when development work is finished. The bootstrap
+stack is shared deployment infrastructure and may be used by other CDK
+applications, developers, or deployment pipelines in the same account and
+Region. Deleting it removes the resources that support CDK deployments and can
+break those workflows.
+
+Use the following distinction when cleaning up:
+
+| Situation | Action |
+| --- | --- |
+| Finished coding or deploying for the day | Keep `CDKToolkit` |
+| Permanently removing only this application | Destroy `foundry-dev`; keep `CDKToolkit` |
+| Decommissioning the entire account and Region | An administrator may remove `CDKToolkit` last |
+
+Destroying the application stack is a destructive operation. Run it only when
+the `foundry-dev` resources are intentionally being permanently removed:
+
+```bash
+npx cdk destroy foundry-dev -c env=dev
+```
+
+Only consider removing `CDKToolkit` after every dependent CDK application and
+pipeline has been removed, no other team uses it, and the AWS administrator has
+approved the deletion. Removing the bootstrap stack does not substitute for
+destroying the application stack.
+
+AWS recommends termination protection for the bootstrap stack. An authorized
+administrator can enable it on a new or existing bootstrap stack with:
+
+```bash
+development_account_id=$(aws sts get-caller-identity --query Account --output text)
+npx cdk bootstrap \
+  "aws://${development_account_id}/us-east-1" \
+  --termination-protection
+```
+
+This command updates the shared bootstrap stack. Confirm the selected account
+and coordinate with its administrator before running it.
+
+If CDK reports that the current credentials cannot assume a bootstrap lookup or
+deployment role, first confirm that `CDKToolkit` exists. Re-running bootstrap
+can repair a missing or outdated stack, but it does not grant the current SSO
+identity permission to call `sts:AssumeRole`. An AWS administrator may also
+need to update the SSO permission set or the bootstrap role trust policy.
+
+Do not proceed to application deployment until CDK can use the required
+bootstrap roles. To require an accurate CloudFormation change-set diff instead
+of allowing CDK to fall back to a template-only comparison, run:
+
+```bash
+npx cdk diff -c env=dev --method change-set
 ```
 
 ## Make targets
