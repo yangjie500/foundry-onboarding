@@ -46,7 +46,10 @@ A successful execution returns:
 - `schema_version`
 - `request_id`
 - `status`
-- `result`
+- `result.message`: The echoed input message.
+- `result.example_variable`: The non-secret example value loaded from Parameter
+  Store.
+- `result.example_secret_loaded`: Whether the example `SecureString` was loaded.
 
 The output must preserve the input request ID.
 
@@ -68,7 +71,10 @@ Invalid input is a permanent error and should not be retried.
 ## Sensitive data
 
 Requests must not contain credentials, passwords, access tokens, or other
-secrets. The complete payload must not be written to logs.
+secrets. The complete payload must not be written to logs. The generic
+processor retrieves its example `SecureString` directly from Parameter Store
+and returns only a boolean indicating that it was loaded; the value must never
+appear in workflow output or logs.
 
 ## Contract organization
 

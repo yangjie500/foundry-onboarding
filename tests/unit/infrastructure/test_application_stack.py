@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 
 import aws_cdk as cdk
@@ -60,6 +61,7 @@ def test_application_stack_creates_expected_resource_graph() -> None:
     template.resource_count_is("AWS::StepFunctions::StateMachine", 1)
     template.resource_count_is("AWS::Logs::LogGroup", 2)
     template.resource_count_is("AWS::IAM::Role", 2)
+    template.resource_count_is("AWS::SSM::Parameter", 1)
 
 
 @pytest.mark.parametrize(
@@ -82,7 +84,17 @@ def test_application_stack_applies_environment_configuration(
         "AWS::Lambda::Function",
         {
             "Architectures": ["x86_64"],
-            "Environment": {"Variables": {"APP_ENV": environment}},
+            "Environment": {
+                "Variables": {
+                    "APP_ENV": environment,
+                    "GENERIC_VARIABLE_PARAMETER_NAME": (
+                        f"/foundry/{environment}/generic/example-variable"
+                    ),
+                    "GENERIC_SECRET_PARAMETER_NAME": (
+                        f"/foundry/{environment}/generic/example-secret"
+                    ),
+                }
+            },
             "FunctionName": f"foundry-{environment}-generic-processor",
             "Handler": "foundry_onboarding.handlers.generic_processor.handler",
             "LoggingConfig": {
@@ -118,6 +130,47 @@ def test_application_stack_applies_environment_configuration(
         assert log_group["Properties"]["RetentionInDays"] == retention_days
         assert log_group["DeletionPolicy"] == removal_policy
         assert log_group["UpdateReplacePolicy"] == removal_policy
+
+    parameters = cast(
+        dict[str, dict[str, Any]],
+        template.find_resources("AWS::SSM::Parameter"),
+    )
+    assert len(parameters) == 1
+    parameter = next(iter(parameters.values()))
+    assert parameter["DeletionPolicy"] == removal_policy
+    assert parameter["UpdateReplacePolicy"] == removal_policy
+
+
+def test_application_stack_configures_parameter_store_access() -> None:
+    template = _template()
+
+    template.has_resource_properties(
+        "AWS::SSM::Parameter",
+        {
+            "Name": "/foundry/dev/generic/example-variable",
+            "Type": "String",
+            "Value": "hello-from-dev-parameter-store",
+        },
+    )
+
+    policies = cast(
+        dict[str, dict[str, Any]],
+        template.find_resources("AWS::IAM::Policy"),
+    )
+    statements = [
+        statement
+        for policy in policies.values()
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+        if statement["Action"] == "ssm:GetParameters"
+    ]
+    assert len(statements) == 1
+
+    resource_json = json.dumps(statements[0]["Resource"])
+    assert "GenericExampleVariable" in resource_json
+    assert "parameter/foundry/dev/generic/example-secret" in resource_json
+
+    template_json = json.dumps(template.to_json())
+    assert "not-a-real-secret" not in template_json
 
 
 def test_workflow_definition_and_policy_reference_the_processor() -> None:

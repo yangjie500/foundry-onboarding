@@ -11,3 +11,9 @@ class InvalidInputError(ApplicationError):
     """Raised when a Lambda event violates its input contract."""
 
     error_code: ClassVar[str] = "INVALID_INPUT"
+
+
+class ConfigurationError(ApplicationError):
+    """Raised when required runtime configuration cannot be loaded."""
+
+    error_code: ClassVar[str] = "CONFIGURATION_ERROR"

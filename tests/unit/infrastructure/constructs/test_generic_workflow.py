@@ -37,6 +37,11 @@ def _config(
                 "enable_tracing": enable_tracing,
                 "workflow_log_level": workflow_log_level,
             },
+            "parameters": {
+                "generic_variable_name": f"/foundry/{environment}/generic/example-variable",
+                "generic_variable_value": "example-value",
+                "generic_secret_name": f"/foundry/{environment}/generic/example-secret",
+            },
         }
     )
 

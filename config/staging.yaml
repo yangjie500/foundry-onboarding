@@ -17,3 +17,8 @@ observability:
   log_retention_days: 30
   enable_tracing: true
   workflow_log_level: ALL
+
+parameters:
+  generic_variable_name: /foundry/staging/generic/example-variable
+  generic_variable_value: hello-from-staging-parameter-store
+  generic_secret_name: /foundry/staging/generic/example-secret

@@ -17,3 +17,8 @@ observability:
   log_retention_days: 90
   enable_tracing: true
   workflow_log_level: ERROR
+
+parameters:
+  generic_variable_name: /foundry/production/generic/example-variable
+  generic_variable_value: hello-from-production-parameter-store
+  generic_secret_name: /foundry/production/generic/example-secret

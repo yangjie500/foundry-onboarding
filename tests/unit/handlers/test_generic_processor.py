@@ -8,8 +8,21 @@ from pydantic import ValidationError
 
 from foundry_onboarding.errors import InvalidInputError
 from foundry_onboarding.handlers.generic_processor import handler
+from foundry_onboarding.services.generic_processor import GenericProcessorParameters
 
 EVENTS_DIRECTORY = Path(__file__).parents[3] / "events" / "functions" / "generic_processor"
+
+
+@pytest.fixture(autouse=True)
+def stub_parameter_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    parameters = GenericProcessorParameters(
+        example_variable="hello-from-dev-parameter-store",
+        example_secret="not-a-real-secret",
+    )
+    monkeypatch.setattr(
+        "foundry_onboarding.handlers.generic_processor.load_generic_processor_parameters",
+        lambda: parameters,
+    )
 
 
 def read_event(name: str) -> dict[str, object]:
@@ -63,6 +76,7 @@ def test_handler_logs_request_metadata_without_payload(
     assert len(completion_records) == 1
     assert completion_records[0].__dict__["request_id"] == event["request_id"]
     assert "Hello from Step Functions" not in caplog.text
+    assert "not-a-real-secret" not in caplog.text
 
 
 def test_handler_logs_invalid_input_without_full_event(

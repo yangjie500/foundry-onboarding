@@ -14,9 +14,11 @@ infra = [
     "pyyaml>=6.0.3",
 ]
 lambda-generic = [
+    "boto3>=1.43.105",
     "pydantic>=2.13.5",
 ]
 dev = [
+    "boto3-stubs[secretsmanager,ssm]>=1.43.105",
     "mypy>=2.3.1",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",

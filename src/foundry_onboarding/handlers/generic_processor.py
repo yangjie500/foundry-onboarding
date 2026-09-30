@@ -4,6 +4,9 @@ from pydantic import ValidationError
 
 from foundry_onboarding.contracts.generic_processor import GenericProcessorInput
 from foundry_onboarding.errors import InvalidInputError
+from foundry_onboarding.runtime_configuration.generic_processor import (
+    load_generic_processor_parameters,
+)
 from foundry_onboarding.services.generic_processor import process_request
 
 logger = logging.getLogger(__name__)
@@ -39,7 +42,8 @@ def handler(event: object, _context: object) -> dict[str, object]:
         )
         raise InvalidInputError("Generic processor input is invalid") from error
 
-    result = process_request(request)
+    parameters = load_generic_processor_parameters()
+    result = process_request(request, parameters)
 
     logger.info(
         "Generic processor completed request",

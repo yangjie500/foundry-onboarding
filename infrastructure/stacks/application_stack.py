@@ -1,8 +1,10 @@
 from pathlib import Path
 from typing import Any
 
-from aws_cdk import CfnOutput, Stack
+from aws_cdk import CfnOutput, RemovalPolicy, Stack
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_stepfunctions as sfn
 from constructs import Construct
 
@@ -40,6 +42,38 @@ class ApplicationStack(Stack):
             description="Process a generic workflow request",
         )
         self.generic_processor = processor.function
+
+        generic_variable = ssm.StringParameter(
+            self,
+            "GenericExampleVariable",
+            parameter_name=config.parameters.generic_variable_name,
+            string_value=config.parameters.generic_variable_value,
+            description="Example variable used by the generic processor",
+        )
+        generic_variable.apply_removal_policy(
+            RemovalPolicy.RETAIN if config.environment == "production" else RemovalPolicy.DESTROY
+        )
+
+        self.generic_processor.add_environment(
+            "GENERIC_VARIABLE_PARAMETER_NAME",
+            config.parameters.generic_variable_name,
+        )
+        self.generic_processor.add_environment(
+            "GENERIC_SECRET_PARAMETER_NAME",
+            config.parameters.generic_secret_name,
+        )
+
+        generic_secret_arn = self.format_arn(
+            service="ssm",
+            resource="parameter",
+            resource_name=config.parameters.generic_secret_name.removeprefix("/"),
+        )
+        self.generic_processor.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameters"],
+                resources=[generic_variable.parameter_arn, generic_secret_arn],
+            )
+        )
 
         workflow = GenericWorkflow(
             self,

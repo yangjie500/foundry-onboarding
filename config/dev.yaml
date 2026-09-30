@@ -17,3 +17,8 @@ observability:
   log_retention_days: 14
   enable_tracing: true
   workflow_log_level: ALL
+
+parameters:
+  generic_variable_name: /foundry/dev/generic/example-variable
+  generic_variable_value: hello-from-dev-parameter-store
+  generic_secret_name: /foundry/dev/generic/example-secret

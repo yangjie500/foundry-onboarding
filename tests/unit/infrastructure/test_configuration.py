@@ -32,6 +32,11 @@ def _valid_config() -> dict[str, object]:
             "enable_tracing": True,
             "workflow_log_level": "ALL",
         },
+        "parameters": {
+            "generic_variable_name": "/foundry/dev/generic/example-variable",
+            "generic_variable_value": "hello-from-dev-parameter-store",
+            "generic_secret_name": "/foundry/dev/generic/example-secret",
+        },
     }
 
 
@@ -57,6 +62,12 @@ def test_load_environment_config(
     assert config.workflow.retry.max_attempts == 3
     assert config.observability.log_retention_days == retention_days
     assert config.observability.workflow_log_level == workflow_log_level
+    assert config.parameters.generic_variable_name == (
+        f"/foundry/{environment}/generic/example-variable"
+    )
+    assert config.parameters.generic_secret_name == (
+        f"/foundry/{environment}/generic/example-secret"
+    )
 
 
 @pytest.mark.parametrize(
@@ -67,6 +78,9 @@ def test_load_environment_config(
         ("workflow", "timeout_seconds", 0),
         ("observability", "log_retention_days", 7),
         ("observability", "workflow_log_level", "DEBUG"),
+        ("parameters", "generic_variable_name", "missing-leading-slash"),
+        ("parameters", "generic_variable_value", ""),
+        ("parameters", "generic_secret_name", "missing-leading-slash"),
     ],
 )
 def test_environment_config_rejects_invalid_settings(
@@ -92,6 +106,16 @@ def test_environment_config_rejects_invalid_retry_settings() -> None:
     retry["max_attempts"] = -1
 
     with pytest.raises(ValidationError):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_rejects_duplicate_parameter_names() -> None:
+    raw_config = _valid_config()
+    parameters = raw_config["parameters"]
+    assert isinstance(parameters, dict)
+    parameters["generic_secret_name"] = parameters["generic_variable_name"]
+
+    with pytest.raises(ValidationError, match="generic parameter names must be distinct"):
         EnvironmentConfig.model_validate(raw_config)
 
 

@@ -41,6 +41,8 @@ def test_expected_output_matches_processor_contract() -> None:
 
     assert output.status == "succeeded"
     assert output.result.message == "Hello from Step Functions"
+    assert output.result.example_variable == "hello-from-dev-parameter-store"
+    assert output.result.example_secret_loaded is True
 
 
 def test_processor_output_preserves_request_identity() -> None:
@@ -49,7 +51,11 @@ def test_processor_output_preserves_request_identity() -> None:
         schema_version=processor_input.schema_version,
         request_id=processor_input.request_id,
         status="succeeded",
-        result=EchoResult(message=processor_input.message),
+        result=EchoResult(
+            message=processor_input.message,
+            example_variable="hello-from-dev-parameter-store",
+            example_secret_loaded=True,
+        ),
     )
 
     assert output.request_id == processor_input.request_id

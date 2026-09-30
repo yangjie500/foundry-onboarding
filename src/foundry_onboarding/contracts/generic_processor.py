@@ -9,6 +9,8 @@ class EchoResult(ContractModel):
     """Result produced by the generic processor's echo operation."""
 
     message: str = Field(min_length=1, max_length=1_000)
+    example_variable: str = Field(min_length=1, max_length=256)
+    example_secret_loaded: bool
 
 
 class GenericProcessorInput(WorkflowIdentity):

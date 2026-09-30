@@ -1,8 +1,8 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 EnvironmentName = Literal["dev", "staging", "production"]
 WorkflowLogLevel = Literal["ALL", "ERROR", "FATAL", "OFF"]
@@ -34,12 +34,34 @@ class ObservabilitySettings(SettingsModel):
     workflow_log_level: WorkflowLogLevel
 
 
+class ParameterSettings(SettingsModel):
+    generic_variable_name: str = Field(
+        min_length=2,
+        max_length=1_011,
+        pattern=r"^/[A-Za-z0-9_.\-/]+$",
+    )
+    generic_variable_value: str = Field(min_length=1, max_length=256)
+    generic_secret_name: str = Field(
+        min_length=2,
+        max_length=1_011,
+        pattern=r"^/[A-Za-z0-9_.\-/]+$",
+    )
+
+    @model_validator(mode="after")
+    def parameter_names_must_be_distinct(self) -> Self:
+        if self.generic_variable_name == self.generic_secret_name:
+            raise ValueError("generic parameter names must be distinct")
+
+        return self
+
+
 class EnvironmentConfig(SettingsModel):
     environment: EnvironmentName
     aws_region: str = Field(min_length=1)
     lambda_function: LambdaSettings
     workflow: WorkflowSettings
     observability: ObservabilitySettings
+    parameters: ParameterSettings
 
 
 def load_environment_config(environment: EnvironmentName) -> EnvironmentConfig:
