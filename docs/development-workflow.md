@@ -8,6 +8,7 @@ dependencies, build the Lambda artifact, and validate the result locally.
 Install these tools before working with the repository:
 
 - Docker with the daemon running
+- AWS CLI v2
 - `uv`
 - Node.js and npm
 - GNU Make
@@ -154,6 +155,63 @@ Before handing changes off for review, also run:
 ```bash
 git diff --check
 git status --short
+```
+
+## AWS SSO authentication
+
+AWS authentication is not required for local tests or synthesis, but it is
+required for `make diff` and `make deploy`. This project uses a named profile so
+that CDK does not accidentally use credentials from the default profile or a
+different AWS account.
+
+List the profiles already configured on the machine:
+
+```bash
+aws configure list-profiles
+```
+
+If `foundry-dev` is not listed, configure it using the values supplied by the
+AWS administrator:
+
+```bash
+aws configure sso --profile foundry-dev
+```
+
+The SSO region requested by this command is the region where IAM Identity
+Center is configured. It may differ from the application deployment region.
+When prompted for the default AWS region, use `us-east-1` for this project.
+
+Select the profile and application region in each new terminal session:
+
+```bash
+export AWS_PROFILE=foundry-dev
+export AWS_REGION=us-east-1
+```
+
+`AWS_PROFILE` tells the AWS CLI, SDKs, and CDK which named profile to use.
+Setting it is not strictly required because `--profile foundry-dev` can be
+passed to individual AWS commands, but the Make targets do not pass a profile.
+Exporting it therefore keeps all commands in the session on the intended
+development account.
+
+Sign in when the machine has no cached SSO session or when the existing session
+has expired:
+
+```bash
+aws sso login --profile "$AWS_PROFILE"
+```
+
+Before running a diff or deployment, verify the active identity and confirm
+that the returned account ID is the intended development account:
+
+```bash
+aws sts get-caller-identity
+```
+
+Then review the proposed infrastructure changes:
+
+```bash
+make diff ENV=dev
 ```
 
 ## Make targets
