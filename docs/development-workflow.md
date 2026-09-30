@@ -326,6 +326,208 @@ of allowing CDK to fall back to a template-only comparison, run:
 npx cdk diff -c env=dev --method change-set
 ```
 
+## Generic processor Parameter Store configuration
+
+The generic processor demonstrates runtime configuration with two Systems
+Manager Parameter Store values:
+
+| Parameter | Type | Ownership |
+| --- | --- | --- |
+| `/foundry/dev/generic/example-variable` | `String` | Created and managed by the application CDK stack |
+| `/foundry/dev/generic/example-secret` | `SecureString` | Created outside CloudFormation and retained independently |
+
+The ordinary parameter value is defined in `config/dev.yaml`. The secure value
+must never be added to the environment YAML, CDK source, Lambda environment,
+events, logs, or Git. AWS CloudFormation does not support creating Parameter
+Store `SecureString` parameters directly.
+
+Before the first development deployment, create the fake secure parameter in
+the authenticated development account. The literal below is intentionally not
+a real secret:
+
+```bash
+export AWS_PROFILE=foundry-dev
+export AWS_REGION=us-east-1
+aws sso login --profile "$AWS_PROFILE"
+aws sts get-caller-identity
+
+aws ssm put-parameter \
+  --name "/foundry/dev/generic/example-secret" \
+  --description "Non-production fake secret for generic processor testing" \
+  --type "SecureString" \
+  --value "not-a-real-secret" \
+  --region us-east-1
+```
+
+Do not place a genuine secret directly in a shell command because the value may
+remain in shell history. Use an approved secret-entry process for real
+credentials, and prefer Secrets Manager for production API tokens.
+
+Verify the parameter metadata without decrypting or printing its value:
+
+```bash
+aws ssm get-parameter \
+  --name "/foundry/dev/generic/example-secret" \
+  --region us-east-1 \
+  --query 'Parameter.{Name:Name,Type:Type,Version:Version}' \
+  --output table
+```
+
+CDK adds only the parameter names to the Lambda environment:
+
+```text
+GENERIC_VARIABLE_PARAMETER_NAME=/foundry/dev/generic/example-variable
+GENERIC_SECRET_PARAMETER_NAME=/foundry/dev/generic/example-secret
+```
+
+The Lambda role receives `ssm:GetParameters` for exactly those two parameter
+ARNs. The generic runtime configuration loader uses the reusable
+`adapters/aws/parameter_store.py` adapter to retrieve both values in one request
+with decryption enabled. It caches the composed result for the lifetime of the
+warm Lambda execution environment. Updating a parameter therefore may not
+affect an already warm execution environment immediately.
+
+The reusable `adapters/aws/secrets_manager.py` adapter is also available for
+future provider integrations. It validates JSON secret documents and handles
+AWS failures without exposing values, but the current generic Lambda neither
+calls Secrets Manager nor receives permission to access it.
+
+The generic response returns the ordinary example value and
+`example_secret_loaded: true` to demonstrate successful access. It never
+returns or logs the secure value. The fake secure parameter is managed outside
+the application stack and remains after `foundry-dev` is destroyed; clean it up
+separately only when it is no longer needed.
+
+After changing parameter names, ordinary values, dependencies, or retrieval
+code, rebuild and validate before reviewing the deployment diff:
+
+```bash
+make package
+make check ENV=dev
+npx cdk diff foundry-dev -c env=dev --method change-set
+```
+
+The diff should contain one `AWS::SSM::Parameter`, two Lambda environment
+variables containing names rather than values, and a scoped
+`ssm:GetParameters` policy. It must not contain `not-a-real-secret` or any real
+secret value.
+
+## Deploy the development stack
+
+Deployment creates and updates real AWS resources. Do not deploy while CDK
+reports that it cannot assume the bootstrap lookup or deployment roles.
+
+First, select the development profile, sign in, and verify that the active
+identity belongs to the intended account:
+
+```bash
+export AWS_PROFILE=foundry-dev
+export AWS_REGION=us-east-1
+aws sso login --profile "$AWS_PROFILE"
+aws sts get-caller-identity
+```
+
+Require an accurate CloudFormation change-set diff before deployment:
+
+```bash
+npx cdk diff foundry-dev \
+  -c env=dev \
+  --method change-set
+```
+
+This command must complete without bootstrap-role warnings. Review every
+proposed resource and IAM change. If role assumption still fails, stop and
+resolve the SSO permission or bootstrap trust configuration with the AWS
+administrator.
+
+Rebuild and validate the exact application code that will be deployed:
+
+```bash
+make package
+make check ENV=dev
+git status --short
+```
+
+All checks must pass, and any tracked working-tree changes must be intentional.
+Deploy using the project Make target:
+
+```bash
+make deploy ENV=dev
+```
+
+The project currently contains one stack, `foundry-dev`. The equivalent
+explicit command, with complete CloudFormation event output, is:
+
+```bash
+npx cdk deploy foundry-dev \
+  -c env=dev \
+  --require-approval broadening \
+  --progress events
+```
+
+The first deployment prompts for approval because it creates IAM roles and
+policies. Approve only if the security changes match the reviewed diff. Keep
+the default rollback behavior; do not add `--no-rollback` to the initial
+deployment.
+
+During deployment, CDK uploads the Lambda asset to the bootstrap S3 bucket and
+uses CloudFormation to create the Lambda function, Step Functions state
+machine, log groups, IAM roles and policies, tracing configuration, and stack
+outputs.
+
+After deployment, confirm that CloudFormation completed successfully:
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name foundry-dev \
+  --region us-east-1 \
+  --query 'Stacks[0].StackStatus' \
+  --output text
+```
+
+The expected status for a first successful deployment is `CREATE_COMPLETE`.
+Display the Lambda name and workflow ARN exported by the stack:
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name foundry-dev \
+  --region us-east-1 \
+  --query 'Stacks[0].Outputs' \
+  --output table
+```
+
+Verify the deployed Lambda configuration:
+
+```bash
+aws lambda get-function-configuration \
+  --function-name foundry-dev-generic-processor \
+  --region us-east-1 \
+  --query '{State:State,Runtime:Runtime,Architecture:Architectures[0],Memory:MemorySize,Timeout:Timeout,Tracing:TracingConfig.Mode}' \
+  --output table
+```
+
+Expected values are an `Active` function using `python3.14`, `x86_64`, 256 MB
+of memory, a 30-second timeout, and `Active` X-Ray tracing.
+
+If deployment fails, do not immediately destroy or re-bootstrap the
+environment. Inspect the first `CREATE_FAILED` event and its reason:
+
+```bash
+aws cloudformation describe-stack-events \
+  --stack-name foundry-dev \
+  --region us-east-1 \
+  --max-items 20
+```
+
+Default CDK deployment uses CloudFormation rollback, so AWS normally removes
+partial changes after a failure. Diagnose the failure before taking any
+destructive action.
+
+Development deployment is complete when the change-set diff and local checks
+pass, `foundry-dev` reaches `CREATE_COMPLETE`, the Lambda reports `Active`, and
+the `GenericWorkflowArn` output is available. Executing that workflow is a
+separate validation step.
+
 ## Make targets
 
 | Command | Action |
