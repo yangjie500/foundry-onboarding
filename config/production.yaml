@@ -22,3 +22,9 @@ parameters:
   generic_variable_name: /foundry/production/generic/example-variable
   generic_variable_value: hello-from-production-parameter-store
   generic_secret_name: /foundry/production/generic/example-secret
+
+integrations:
+  gitlab:
+    base_url_parameter_name: /foundry/production/gitlab/base-url
+    api_token_parameter_name: /foundry/production/gitlab/api-token
+    tls_verify: true

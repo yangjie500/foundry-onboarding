@@ -55,6 +55,31 @@ class ParameterSettings(SettingsModel):
         return self
 
 
+class GitLabSettings(SettingsModel):
+    base_url_parameter_name: str = Field(
+        min_length=2,
+        max_length=1_011,
+        pattern=r"^/[A-Za-z0-9_.\-/]+$",
+    )
+    api_token_parameter_name: str = Field(
+        min_length=2,
+        max_length=1_011,
+        pattern=r"^/[A-Za-z0-9_.\-/]+$",
+    )
+    tls_verify: bool = True
+
+    @model_validator(mode="after")
+    def parameter_names_must_be_distinct(self) -> Self:
+        if self.base_url_parameter_name == self.api_token_parameter_name:
+            raise ValueError("GitLab parameter names must be distinct")
+
+        return self
+
+
+class IntegrationSettings(SettingsModel):
+    gitlab: GitLabSettings
+
+
 class EnvironmentConfig(SettingsModel):
     environment: EnvironmentName
     aws_region: str = Field(min_length=1)
@@ -62,6 +87,14 @@ class EnvironmentConfig(SettingsModel):
     workflow: WorkflowSettings
     observability: ObservabilitySettings
     parameters: ParameterSettings
+    integrations: IntegrationSettings
+
+    @model_validator(mode="after")
+    def insecure_gitlab_tls_is_development_only(self) -> Self:
+        if self.environment != "dev" and not self.integrations.gitlab.tls_verify:
+            raise ValueError("GitLab TLS verification can be disabled only in development")
+
+        return self
 
 
 def load_environment_config(environment: EnvironmentName) -> EnvironmentConfig:

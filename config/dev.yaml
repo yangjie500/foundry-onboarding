@@ -22,3 +22,9 @@ parameters:
   generic_variable_name: /foundry/dev/generic/example-variable
   generic_variable_value: hello-from-dev-parameter-store
   generic_secret_name: /foundry/dev/generic/example-secret
+
+integrations:
+  gitlab:
+    base_url_parameter_name: /foundry/dev/gitlab/base-url
+    api_token_parameter_name: /foundry/dev/gitlab/api-token
+    tls_verify: false

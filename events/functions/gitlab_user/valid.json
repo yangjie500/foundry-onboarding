@@ -1,0 +1,8 @@
+{
+  "schema_version": "1.0",
+  "request_id": "f084a40c-2d45-4bc9-96b2-d650bb746413",
+  "username": "jane.smith",
+  "name": "Jane Smith",
+  "email": "jane.smith@example.com",
+  "external": false
+}

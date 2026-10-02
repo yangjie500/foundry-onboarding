@@ -42,6 +42,12 @@ def _config(
                 "generic_variable_value": "example-value",
                 "generic_secret_name": f"/foundry/{environment}/generic/example-secret",
             },
+            "integrations": {
+                "gitlab": {
+                    "base_url_parameter_name": f"/foundry/{environment}/gitlab/base-url",
+                    "api_token_parameter_name": f"/foundry/{environment}/gitlab/api-token",
+                }
+            },
         }
     )
 

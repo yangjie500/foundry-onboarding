@@ -37,6 +37,13 @@ def _valid_config() -> dict[str, object]:
             "generic_variable_value": "hello-from-dev-parameter-store",
             "generic_secret_name": "/foundry/dev/generic/example-secret",
         },
+        "integrations": {
+            "gitlab": {
+                "base_url_parameter_name": "/foundry/dev/gitlab/base-url",
+                "api_token_parameter_name": "/foundry/dev/gitlab/api-token",
+                "tls_verify": False,
+            }
+        },
     }
 
 
@@ -68,6 +75,13 @@ def test_load_environment_config(
     assert config.parameters.generic_secret_name == (
         f"/foundry/{environment}/generic/example-secret"
     )
+    assert config.integrations.gitlab.base_url_parameter_name == (
+        f"/foundry/{environment}/gitlab/base-url"
+    )
+    assert config.integrations.gitlab.api_token_parameter_name == (
+        f"/foundry/{environment}/gitlab/api-token"
+    )
+    assert config.integrations.gitlab.tls_verify is (environment != "dev")
 
 
 @pytest.mark.parametrize(
@@ -81,6 +95,8 @@ def test_load_environment_config(
         ("parameters", "generic_variable_name", "missing-leading-slash"),
         ("parameters", "generic_variable_value", ""),
         ("parameters", "generic_secret_name", "missing-leading-slash"),
+        ("integrations.gitlab", "base_url_parameter_name", "missing-leading-slash"),
+        ("integrations.gitlab", "api_token_parameter_name", "missing-leading-slash"),
     ],
 )
 def test_environment_config_rejects_invalid_settings(
@@ -89,7 +105,10 @@ def test_environment_config_rejects_invalid_settings(
     value: object,
 ) -> None:
     raw_config = _valid_config()
-    section_config = raw_config[section]
+    section_config: object = raw_config
+    for section_name in section.split("."):
+        assert isinstance(section_config, dict)
+        section_config = section_config[section_name]
     assert isinstance(section_config, dict)
     section_config[field] = value
 
@@ -119,6 +138,32 @@ def test_environment_config_rejects_duplicate_parameter_names() -> None:
         EnvironmentConfig.model_validate(raw_config)
 
 
+def test_environment_config_rejects_duplicate_gitlab_parameter_names() -> None:
+    raw_config = _valid_config()
+    integrations = raw_config["integrations"]
+    assert isinstance(integrations, dict)
+    gitlab = integrations["gitlab"]
+    assert isinstance(gitlab, dict)
+    gitlab["api_token_parameter_name"] = gitlab["base_url_parameter_name"]
+
+    with pytest.raises(ValidationError, match="GitLab parameter names must be distinct"):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_environment_config_rejects_disabled_gitlab_tls_outside_development(
+    environment: str,
+) -> None:
+    raw_config = _valid_config()
+    raw_config["environment"] = environment
+
+    with pytest.raises(
+        ValidationError,
+        match="GitLab TLS verification can be disabled only in development",
+    ):
+        EnvironmentConfig.model_validate(raw_config)
+
+
 def test_environment_config_rejects_unknown_fields() -> None:
     raw_config = _valid_config()
     raw_config["secret"] = "must not be accepted"
@@ -139,6 +184,11 @@ def test_loaded_environment_must_match_requested_environment(
 ) -> None:
     raw_config = _valid_config()
     raw_config["environment"] = "staging"
+    integrations = raw_config["integrations"]
+    assert isinstance(integrations, dict)
+    gitlab = integrations["gitlab"]
+    assert isinstance(gitlab, dict)
+    gitlab["tls_verify"] = True
 
     def fake_safe_load(_stream: object) -> Mapping[str, object]:
         return raw_config

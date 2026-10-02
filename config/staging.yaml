@@ -22,3 +22,9 @@ parameters:
   generic_variable_name: /foundry/staging/generic/example-variable
   generic_variable_value: hello-from-staging-parameter-store
   generic_secret_name: /foundry/staging/generic/example-secret
+
+integrations:
+  gitlab:
+    base_url_parameter_name: /foundry/staging/gitlab/base-url
+    api_token_parameter_name: /foundry/staging/gitlab/api-token
+    tls_verify: true

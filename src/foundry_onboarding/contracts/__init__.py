@@ -10,6 +10,12 @@ from foundry_onboarding.contracts.generic_workflow import (
     EchoWorkflowPayload,
     GenericWorkflowInput,
 )
+from foundry_onboarding.contracts.gitlab_user import (
+    GitLabUserInput,
+    GitLabUsername,
+    GitLabUserOutput,
+    GitLabUserResult,
+)
 
 __all__ = [
     "ContractModel",
@@ -18,5 +24,9 @@ __all__ = [
     "GenericProcessorInput",
     "GenericProcessorOutput",
     "GenericWorkflowInput",
+    "GitLabUserInput",
+    "GitLabUserOutput",
+    "GitLabUserResult",
+    "GitLabUsername",
     "WorkflowIdentity",
 ]
