@@ -1,7 +1,7 @@
 # Development and packaging workflow
 
 This document describes how to install the project, change application code or
-dependencies, build the Lambda artifact, and validate the result locally.
+dependencies, build the Lambda artifacts, and validate the result locally.
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@ Install the locked Python and Node.js dependencies:
 make install
 ```
 
-Build the Lambda deployment artifact and run the complete local quality gate:
+Build the Lambda deployment artifacts and run the complete local quality gate:
 
 ```bash
 make package
@@ -53,16 +53,18 @@ Dependencies are separated by where they are used:
 | --- | --- | --- |
 | `infra` | CDK synthesis and infrastructure configuration | AWS CDK, Pydantic, PyYAML |
 | `lambda-generic` | Code required by the generic processor in Lambda | Pydantic |
+| `lambda-gitlab` | Code required by the GitLab user Lambda | Pydantic, email-validator, urllib3 |
 | `dev` | Local quality and test tools | pytest, Ruff, mypy |
 
 The groups are declared in `pyproject.toml`. A normal `uv sync --locked`
-installs all three groups for local development.
+installs all four groups for local development.
 
 ### Adding or changing a Lambda dependency
 
-Add the dependency to the `lambda-generic` group in `pyproject.toml`. If the
-infrastructure code imports the same dependency, add it to `infra` as well.
-Then update and validate the generated files:
+Add the dependency to the group for the Lambda that imports it:
+`lambda-generic` or `lambda-gitlab`. Add it to both only when both deployment
+packages require it. If the infrastructure code imports the same dependency,
+add it to `infra` as well. Then update and validate the generated files:
 
 ```bash
 uv lock
@@ -70,9 +72,9 @@ make package
 make check ENV=dev
 ```
 
-Commit `pyproject.toml`, `uv.lock`, and
-`requirements/generic-processor.txt` together. Do not edit the requirements
-file by hand; `make package` regenerates it from the lockfile.
+Commit `pyproject.toml`, `uv.lock`, and the affected files under
+`requirements/` together. Do not edit generated requirements by hand;
+`make package` regenerates them from the lockfile.
 
 ### Adding an infrastructure dependency
 
@@ -100,44 +102,49 @@ Development dependencies are not included in the Lambda artifact.
 
 ## Changing Lambda source code
 
-After changing files under `src/foundry_onboarding`, rebuild the artifact before
-synthesis, diff, or deployment:
+After changing files under `src/foundry_onboarding`, rebuild the artifacts
+before synthesis, diff, or deployment:
 
 ```bash
 make package
 make check ENV=dev
 ```
 
-The package step copies the current source, so an existing artifact does not
-update automatically when source files change.
+The package step copies the current source into each Lambda artifact, so
+existing artifacts do not update automatically when source files change.
 
 ## How packaging works
 
-`make requirements` exports only the `lambda-generic` dependency group from
-`uv.lock` to `requirements/generic-processor.txt`. The export contains exact
-versions and package hashes.
+`make requirements` exports each Lambda dependency group from `uv.lock`:
 
-`make package` first refreshes that requirements file and then runs
-`scripts/build-lambda-asset.sh`. The script:
+- `lambda-generic` to `requirements/generic-processor.txt`.
+- `lambda-gitlab` to `requirements/gitlab-user.txt`.
 
-1. Recreates only `build/generic-processor`.
+Each export contains exact versions and package hashes.
+
+`make package` refreshes both requirements files and invokes
+`scripts/build-lambda-asset.sh` once for each supported target. The guarded
+script accepts only `generic-processor` or `gitlab-user`. For each target it:
+
+1. Recreates only the selected directory under `build/`.
 2. Runs `public.ecr.aws/sam/build-python3.14` for `linux/amd64`.
 3. Installs hashed dependencies using binary wheels only.
 4. Copies `src/foundry_onboarding` into the artifact.
 5. Removes Python cache files from the copied source.
 6. Confirms that the source, Pydantic, and the native `pydantic-core` extension
    are present.
-7. Imports `foundry_onboarding.handlers.generic_processor.handler` inside the
-   Python 3.14 container.
+7. Imports the target's configured handler inside the Python 3.14 container.
 
-The resulting directory is the root of the Lambda zip asset:
+The resulting directories are the roots of the Lambda zip assets:
 
 ```text
-build/generic-processor/
-├── foundry_onboarding/
-├── pydantic/
-├── pydantic_core/
-└── other Pydantic runtime dependencies
+build/
+├── generic-processor/
+│   ├── foundry_onboarding/
+│   └── generic runtime dependencies
+└── gitlab-user/
+    ├── foundry_onboarding/
+    └── GitLab runtime dependencies
 ```
 
 `build/` is generated locally and ignored by Git. Do not commit it.
@@ -158,8 +165,9 @@ This runs, in order:
 4. CDK synthesis for the selected environment.
 
 Infrastructure unit tests inject inline Lambda code, so the tests themselves do
-not need Docker or a pre-existing package. Normal application synthesis uses
-`build/generic-processor`, so package before running the complete quality gate.
+not need Docker or pre-existing packages. Normal application synthesis uses
+both directories under `build/`, so package before running the complete quality
+gate.
 
 Before handing changes off for review, also run:
 
@@ -241,9 +249,10 @@ The default bootstrap stack provides resources used by CDK, including:
 - A CloudFormation execution role that creates the application resources.
 - An SSM parameter that records the bootstrap template version.
 
-For this project, `make package` creates `build/generic-processor` locally. CDK
-then packages that directory and uploads it to the bootstrap S3 bucket before
-CloudFormation creates or updates the Lambda function.
+For this project, `make package` creates `build/generic-processor` and
+`build/gitlab-user` locally. CDK packages both directories and uploads them to
+the bootstrap S3 bucket before CloudFormation creates or updates the Lambda
+functions.
 
 Bootstrap status is specific to an account and Region. Check the development
 environment with:
@@ -407,10 +416,22 @@ make check ENV=dev
 npx cdk diff foundry-dev -c env=dev --method change-set
 ```
 
-The diff should contain one `AWS::SSM::Parameter`, two Lambda environment
-variables containing names rather than values, and a scoped
-`ssm:GetParameters` policy. It must not contain `not-a-real-secret` or any real
-secret value.
+The generic-processor portion of the diff should contain one
+`AWS::SSM::Parameter`, two Lambda environment variables containing names rather
+than values, and a scoped `ssm:GetParameters` policy. It must not contain
+`not-a-real-secret` or any real secret value.
+
+## GitLab user Lambda configuration
+
+The independently deployable GitLab user Lambda reads its base URL and API
+token from two externally managed Parameter Store entries. Its contract,
+required GitLab authorization, exact parameter names, network and TLS
+prerequisites, failure behavior, safe logging rules, and controlled invocation
+procedure are documented in the
+[GitLab user Lambda guide](gitlab-user-lambda.md).
+
+The function is not connected to Step Functions yet. Deploying it does not
+change the generic workflow definition.
 
 ## Deploy the development stack
 
@@ -470,8 +491,8 @@ policies. Approve only if the security changes match the reviewed diff. Keep
 the default rollback behavior; do not add `--no-rollback` to the initial
 deployment.
 
-During deployment, CDK uploads the Lambda asset to the bootstrap S3 bucket and
-uses CloudFormation to create the Lambda function, Step Functions state
+During deployment, CDK uploads both Lambda assets to the bootstrap S3 bucket
+and uses CloudFormation to create the Lambda functions, Step Functions state
 machine, log groups, IAM roles and policies, tracing configuration, and stack
 outputs.
 
@@ -486,7 +507,7 @@ aws cloudformation describe-stacks \
 ```
 
 The expected status for a first successful deployment is `CREATE_COMPLETE`.
-Display the Lambda name and workflow ARN exported by the stack:
+Display the Lambda names and workflow ARN exported by the stack:
 
 ```bash
 aws cloudformation describe-stacks \
@@ -509,6 +530,16 @@ aws lambda get-function-configuration \
 Expected values are an `Active` function using `python3.14`, `x86_64`, 256 MB
 of memory, a 30-second timeout, and `Active` X-Ray tracing.
 
+Run the same configuration check for the standalone GitLab function:
+
+```bash
+aws lambda get-function-configuration \
+  --function-name foundry-dev-gitlab-user \
+  --region us-east-1 \
+  --query '{State:State,Runtime:Runtime,Architecture:Architectures[0],Memory:MemorySize,Timeout:Timeout,Tracing:TracingConfig.Mode}' \
+  --output table
+```
+
 If deployment fails, do not immediately destroy or re-bootstrap the
 environment. Inspect the first `CREATE_FAILED` event and its reason:
 
@@ -525,8 +556,9 @@ destructive action.
 
 Development deployment is complete when the change-set diff and local checks
 pass, `foundry-dev` reaches `CREATE_COMPLETE`, the Lambda reports `Active`, and
-the `GenericWorkflowArn` output is available. Executing that workflow is a
-separate validation step.
+the `GenericWorkflowArn` and `GitLabUserFunctionName` outputs are available.
+Executing the workflow or directly invoking the GitLab function is a separate
+validation step.
 
 ## Make targets
 
@@ -534,7 +566,7 @@ separate validation step.
 | --- | --- |
 | `make install` | Install locked Node.js and Python development dependencies |
 | `make requirements` | Export hashed Lambda requirements from `uv.lock` |
-| `make package` | Export requirements, build the artifact, and verify its imports |
+| `make package` | Export requirements, build both Lambda artifacts, and verify their imports |
 | `make format` | Apply Ruff formatting and safe lint fixes |
 | `make lint` | Check formatting and lint rules |
 | `make typecheck` | Run strict mypy checks |
@@ -551,8 +583,8 @@ explicit action and is not part of `make check` or `make package`.
 
 ## Common failures
 
-- If synthesis reports that `build/generic-processor` does not exist, run
-  `make package`.
+- If synthesis reports that `build/generic-processor` or `build/gitlab-user`
+  does not exist, run `make package`.
 - If Docker cannot connect to its daemon, start Docker and verify that the
   current user can access it.
 - If packaging cannot find a compatible wheel, confirm the dependency publishes
