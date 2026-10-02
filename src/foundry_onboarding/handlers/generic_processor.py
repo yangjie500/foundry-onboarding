@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from foundry_onboarding.contracts.generic_processor import GenericProcessorInput
 from foundry_onboarding.errors import InvalidInputError
+from foundry_onboarding.handlers.common import safe_request_id
 from foundry_onboarding.runtime_configuration.generic_processor import (
     load_generic_processor_parameters,
 )
@@ -11,20 +12,6 @@ from foundry_onboarding.services.generic_processor import process_request
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-
-def _safe_request_id(event: object) -> str:
-    """Return a request ID without trusting the incoming event shape."""
-
-    if not isinstance(event, dict):
-        return "unknown"
-
-    request_id = event.get("request_id")
-
-    if not isinstance(request_id, str):
-        return "unknown"
-
-    return request_id
 
 
 def handler(event: object, _context: object) -> dict[str, object]:
@@ -36,7 +23,7 @@ def handler(event: object, _context: object) -> dict[str, object]:
         logger.warning(
             "Generic processor rejected invalid input",
             extra={
-                "request_id": _safe_request_id(event),
+                "request_id": safe_request_id(event),
                 "validation_error_count": error.error_count(),
             },
         )

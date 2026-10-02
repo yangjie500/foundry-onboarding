@@ -17,6 +17,7 @@ lambda-generic = [
     "boto3>=1.43.105",
     "email-validator>=2.3.0",
     "pydantic>=2.13.5",
+    "urllib3>=2.8.0",
 ]
 dev = [
     "boto3-stubs[secretsmanager,ssm]>=1.43.105",

@@ -317,6 +317,7 @@ lambda-generic = [
     { name = "boto3" },
     { name = "email-validator" },
     { name = "pydantic" },
+    { name = "urllib3" },
 ]
 
 [package.metadata]
@@ -340,6 +341,7 @@ lambda-generic = [
     { name = "boto3", specifier = ">=1.43.105" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "urllib3", specifier = ">=2.8.0" },
 ]
 
 [[package]]
