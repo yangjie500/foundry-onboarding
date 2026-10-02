@@ -2,8 +2,9 @@
 
 ## Purpose
 
-This contract supports a minimal Lambda and Step Functions deployment while the
-final onboarding requirements are still being determined.
+This contract supports a minimal generic operation and the current GitLab user
+onboarding operation while the later SQS and Slack requirements are still being
+determined.
 
 ## Version
 
@@ -21,12 +22,28 @@ The workflow accepts:
 - `action`: Operation requested by the caller.
 - `payload`: Action-specific input.
 
-The only currently supported action is `echo`.
+The supported actions are:
+
+- `echo`, with `payload.message`.
+- `onboard_user`, with `payload.username`, `payload.name`, `payload.email`, and
+  the strict boolean `payload.external`.
+
+The action and payload shape must match. Unknown fields are rejected by the
+Pydantic public contract.
 
 The request is implemented by `GenericWorkflowInput` in
 `foundry_onboarding.contracts.generic_workflow`.
 
-## Generic processor input
+## State-machine validation
+
+The state machine checks the action, schema version, presence, and basic JSON
+types before invoking a task. Step Functions Choice rules do not fully validate
+UUID, email, username, length, or unknown-field constraints. Each Lambda
+therefore performs strict Pydantic validation after the workflow explicitly
+selects its allowed fields. The future SQS entry contract may add a dedicated
+public-input validation step once that schema is finalized.
+
+## Echo transformation
 
 Step Functions transforms the public workflow input into the smaller Lambda
 input below:
@@ -39,7 +56,7 @@ The Lambda does not receive `action` or the nested workflow `payload`. Its input
 is implemented by `GenericProcessorInput` in
 `foundry_onboarding.contracts.generic_processor`.
 
-## Output
+## Echo output
 
 A successful execution returns:
 
@@ -56,6 +73,43 @@ The output must preserve the input request ID.
 The response is implemented by `GenericProcessorOutput` in
 `foundry_onboarding.contracts.generic_processor`.
 
+## Onboarding transformation
+
+For `onboard_user`, Step Functions invokes the GitLab user Lambda with only:
+
+- `schema_version`
+- `request_id`
+- `username`
+- `name`
+- `email`
+- `external`
+
+The Lambda does not receive `action` or the nested workflow `payload`. Its input
+and output are implemented by `GitLabUserInput` and `GitLabUserOutput` in
+`foundry_onboarding.contracts.gitlab_user`.
+
+A successful GitLab operation returns:
+
+- `schema_version`
+- `request_id`
+- `status`: `created` or `existing`
+- `result.id`: GitLab's numeric user ID
+- `result.username`: The reconciled username
+
+The workflow does not return the email address, name, token, or raw GitLab
+response.
+
+## Retries and failures
+
+The GitLab task retries `GitLabUnavailableError` and AWS Lambda service or
+throttling failures using the configured bounded exponential backoff with full
+jitter. Validation, configuration, authentication, identity conflict, request,
+and protocol failures are not retried.
+
+Caught error payloads are discarded before the workflow enters a safe Fail
+state. Failures distinguish invalid input, GitLab configuration/authentication,
+provisioning rejection, and other GitLab integration failures.
+
 ## Invalid input
 
 A request is invalid when:
@@ -63,18 +117,23 @@ A request is invalid when:
 - The schema version is unsupported.
 - The request ID is not a UUID.
 - The action is unsupported.
-- The message is empty.
+- The selected action's payload is missing required fields or contains invalid
+  values.
 - An unknown field is present.
 
-Invalid input is a permanent error and should not be retried.
+Invalid input is a permanent error and is not retried. Unsupported actions are
+routed to a separate permanent failure.
 
 ## Sensitive data
 
 Requests must not contain credentials, passwords, access tokens, or other
-secrets. The complete payload must not be written to logs. The generic
-processor retrieves its example `SecureString` directly from Parameter Store
-and returns only a boolean indicating that it was loaded; the value must never
-appear in workflow output or logs.
+secrets. Step Functions logging has `IncludeExecutionData` disabled. Standard
+workflow execution history still contains the business input and safe task
+output, so access to execution history must remain restricted.
+
+The generic processor and GitLab Lambda retrieve their configuration directly
+from Parameter Store. Parameter values and raw provider responses must never
+appear in workflow input, output, history, fixtures, or logs.
 
 ## Contract organization
 

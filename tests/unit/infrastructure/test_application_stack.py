@@ -271,21 +271,26 @@ def test_application_stack_configures_optional_gitlab_ca_bundle_access() -> None
     assert len(json.loads(resources)) == 3
 
 
-def test_workflow_definition_and_policy_reference_the_processor() -> None:
+def test_workflow_definition_and_policy_reference_both_task_functions() -> None:
     template = _template()
     processor_logical_id = _function_logical_id(
         template,
         "foundry-dev-generic-processor",
     )
+    gitlab_user_logical_id = _function_logical_id(
+        template,
+        "foundry-dev-gitlab-user",
+    )
 
     processor_arn = {"Fn::GetAtt": [processor_logical_id, "Arn"]}
+    gitlab_user_arn = {"Fn::GetAtt": [gitlab_user_logical_id, "Arn"]}
     template.has_resource_properties(
         "AWS::StepFunctions::StateMachine",
         {
             "DefinitionString": {
                 "Fn::Join": [
                     "",
-                    Match.array_with([processor_arn]),
+                    Match.array_with([processor_arn, gitlab_user_arn]),
                 ]
             }
         },
@@ -308,7 +313,20 @@ def test_workflow_definition_and_policy_reference_the_processor() -> None:
                                     ]
                                 },
                             ],
-                        }
+                        },
+                        {
+                            "Action": "lambda:InvokeFunction",
+                            "Effect": "Allow",
+                            "Resource": [
+                                gitlab_user_arn,
+                                {
+                                    "Fn::Join": [
+                                        "",
+                                        [gitlab_user_arn, ":*"],
+                                    ]
+                                },
+                            ],
+                        },
                     ]
                 )
             }

@@ -63,12 +63,20 @@ def _template(config: EnvironmentConfig | None = None) -> Template:
         handler="index.handler",
         code=lambda_.Code.from_inline("def handler(event, context): return event"),
     )
+    gitlab_user = lambda_.Function(
+        stack,
+        "GitLabUser",
+        runtime=lambda_.Runtime.PYTHON_3_14,
+        handler="index.handler",
+        code=lambda_.Code.from_inline("def handler(event, context): return event"),
+    )
 
     GenericWorkflow(
         stack,
         "Workflow",
         state_machine_name=f"foundry-{resolved_config.environment}-generic-workflow",
         processor=processor,
+        gitlab_user=gitlab_user,
         config=resolved_config,
     )
 
@@ -86,7 +94,15 @@ def _state_machine_definition(template: Template) -> dict[str, object]:
     definition = cast(dict[str, Any], state_machine["Properties"]["DefinitionString"])
     join = cast(list[Any], definition["Fn::Join"])
     parts = cast(list[Any], join[1])
-    serialized = "".join(part if isinstance(part, str) else "PROCESSOR_ARN" for part in parts)
+
+    def serialize_part(part: object) -> str:
+        if isinstance(part, str):
+            return part
+        part_value = cast(dict[str, Any], part)
+        logical_id = cast(list[str], part_value["Fn::GetAtt"])[0]
+        return "GITLAB_USER_ARN" if logical_id.startswith("GitLabUser") else "PROCESSOR_ARN"
+
+    serialized = "".join(serialize_part(part) for part in parts)
 
     return cast(dict[str, object], json.loads(serialized))
 
@@ -117,7 +133,12 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                         "Variable": "$.action",
                         "StringEquals": "echo",
                         "Next": "Validate echo input",
-                    }
+                    },
+                    {
+                        "Variable": "$.action",
+                        "StringEquals": "onboard_user",
+                        "Next": "Validate onboarding input",
+                    },
                 ],
                 "Default": "Unsupported action",
             },
@@ -189,6 +210,125 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                 "Error": "ProcessorFailed",
                 "Cause": "The generic processor failed",
             },
+            "Invoke GitLab user": {
+                "End": True,
+                "Retry": [
+                    {
+                        "ErrorEquals": ["GitLabUnavailableError"],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2,
+                        "JitterStrategy": "FULL",
+                    },
+                    {
+                        "ErrorEquals": [
+                            "Lambda.ServiceException",
+                            "Lambda.AWSLambdaException",
+                            "Lambda.SdkClientException",
+                            "Lambda.TooManyRequestsException",
+                        ],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2,
+                        "JitterStrategy": "FULL",
+                    },
+                ],
+                "Catch": [
+                    {
+                        "ErrorEquals": ["InvalidInputError"],
+                        "ResultPath": None,
+                        "Next": "Invalid workflow input",
+                    },
+                    {
+                        "ErrorEquals": [
+                            "ConfigurationError",
+                            "GitLabAuthenticationError",
+                        ],
+                        "ResultPath": None,
+                        "Next": "GitLab configuration failed",
+                    },
+                    {
+                        "ErrorEquals": [
+                            "GitLabIdentityConflictError",
+                            "GitLabRequestError",
+                        ],
+                        "ResultPath": None,
+                        "Next": "GitLab provisioning rejected",
+                    },
+                    {
+                        "ErrorEquals": ["GitLabProtocolError"],
+                        "ResultPath": None,
+                        "Next": "GitLab integration failed",
+                    },
+                    {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": None,
+                        "Next": "GitLab integration failed",
+                    },
+                ],
+                "Type": "Task",
+                "Resource": "GITLAB_USER_ARN",
+                "Parameters": {
+                    "schema_version.$": "$.schema_version",
+                    "request_id.$": "$.request_id",
+                    "username.$": "$.payload.username",
+                    "name.$": "$.payload.name",
+                    "email.$": "$.payload.email",
+                    "external.$": "$.payload.external",
+                },
+            },
+            "Validate onboarding input": {
+                "Type": "Choice",
+                "Choices": [
+                    {
+                        "And": [
+                            {
+                                "Variable": "$.schema_version",
+                                "StringEquals": "1.0",
+                            },
+                            {"Variable": "$.request_id", "IsPresent": True},
+                            {"Variable": "$.request_id", "IsString": True},
+                            {
+                                "Variable": "$.payload.username",
+                                "IsPresent": True,
+                            },
+                            {
+                                "Variable": "$.payload.username",
+                                "IsString": True,
+                            },
+                            {"Variable": "$.payload.name", "IsPresent": True},
+                            {"Variable": "$.payload.name", "IsString": True},
+                            {"Variable": "$.payload.email", "IsPresent": True},
+                            {"Variable": "$.payload.email", "IsString": True},
+                            {
+                                "Variable": "$.payload.external",
+                                "IsPresent": True,
+                            },
+                            {
+                                "Variable": "$.payload.external",
+                                "IsBoolean": True,
+                            },
+                        ],
+                        "Next": "Invoke GitLab user",
+                    }
+                ],
+                "Default": "Invalid workflow input",
+            },
+            "GitLab configuration failed": {
+                "Type": "Fail",
+                "Error": "GitLabConfigurationFailed",
+                "Cause": "GitLab configuration or authentication failed",
+            },
+            "GitLab provisioning rejected": {
+                "Type": "Fail",
+                "Error": "GitLabProvisioningRejected",
+                "Cause": "GitLab user provisioning was rejected",
+            },
+            "GitLab integration failed": {
+                "Type": "Fail",
+                "Error": "GitLabIntegrationFailed",
+                "Cause": "The GitLab integration failed",
+            },
         },
         "TimeoutSeconds": 300,
     }
@@ -250,7 +390,7 @@ def test_generic_workflow_can_disable_tracing() -> None:
     )
 
 
-def test_generic_workflow_can_invoke_only_the_processor() -> None:
+def test_generic_workflow_can_invoke_only_its_task_functions() -> None:
     template = _template()
 
     template.has_resource_properties(
@@ -270,13 +410,43 @@ def test_generic_workflow_can_invoke_only_the_processor() -> None:
                                                 Match.string_like_regexp("^Processor"),
                                                 "Arn",
                                             ]
+                                        },
+                                    ]
+                                ),
+                            }
+                        ),
+                        Match.object_like(
+                            {
+                                "Action": "lambda:InvokeFunction",
+                                "Effect": "Allow",
+                                "Resource": Match.array_with(
+                                    [
+                                        {
+                                            "Fn::GetAtt": [
+                                                Match.string_like_regexp("^GitLabUser"),
+                                                "Arn",
+                                            ]
                                         }
                                     ]
                                 ),
                             }
-                        )
+                        ),
                     ]
                 )
             }
         },
     )
+
+    policies = cast(
+        dict[str, dict[str, Any]],
+        template.find_resources("AWS::IAM::Policy"),
+    )
+    actions = [
+        action
+        for policy in policies.values()
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+        for action in (
+            statement["Action"] if isinstance(statement["Action"], list) else [statement["Action"]]
+        )
+    ]
+    assert not any(action.startswith("ssm:") for action in actions)

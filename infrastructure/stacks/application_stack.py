@@ -135,6 +135,7 @@ class ApplicationStack(Stack):
             "GenericWorkflow",
             state_machine_name=f"foundry-{config.environment}-generic-workflow",
             processor=self.generic_processor,
+            gitlab_user=self.gitlab_user,
             config=config,
         )
         self.generic_workflow = workflow.state_machine

@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "request_id": "f084a40c-2d45-4bc9-96b2-d650bb746413",
+  "status": "existing",
+  "result": {
+    "id": 123,
+    "username": "jane.smith"
+  }
+}

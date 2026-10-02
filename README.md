@@ -31,9 +31,8 @@ make check ENV=dev
 
 The initial generic workflow contract is documented in
 [docs/generic-workflow-contract.md](docs/generic-workflow-contract.md).
-The independently deployable GitLab user Lambda is documented in
-[docs/gitlab-user-lambda.md](docs/gitlab-user-lambda.md). It is not connected
-to the Step Functions workflow yet.
+The GitLab user Lambda and its `onboard_user` workflow route are documented in
+[docs/gitlab-user-lambda.md](docs/gitlab-user-lambda.md).
 
 Representative workflow-start events are under `events/workflows/`. Lambda
 invocation and expected-output fixtures are under `events/functions/`.

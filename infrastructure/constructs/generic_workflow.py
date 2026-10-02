@@ -26,6 +26,7 @@ class GenericWorkflow(Construct):
         *,
         state_machine_name: str,
         processor: lambda_.IFunction,
+        gitlab_user: lambda_.IFunction,
         config: EnvironmentConfig,
     ) -> None:
         super().__init__(scope, construct_id)
@@ -68,6 +69,44 @@ class GenericWorkflow(Construct):
             jitter_strategy=sfn.JitterType.FULL,
         )
 
+        invoke_gitlab_user = tasks.LambdaInvoke(
+            self,
+            "InvokeGitLabUser",
+            state_name="Invoke GitLab user",
+            lambda_function=gitlab_user,
+            payload=sfn.TaskInput.from_object(
+                {
+                    "schema_version": sfn.JsonPath.string_at("$.schema_version"),
+                    "request_id": sfn.JsonPath.string_at("$.request_id"),
+                    "username": sfn.JsonPath.string_at("$.payload.username"),
+                    "name": sfn.JsonPath.string_at("$.payload.name"),
+                    "email": sfn.JsonPath.string_at("$.payload.email"),
+                    "external": sfn.JsonPath.string_at("$.payload.external"),
+                }
+            ),
+            payload_response_only=True,
+            retry_on_service_exceptions=False,
+        )
+        invoke_gitlab_user.add_retry(
+            errors=["GitLabUnavailableError"],
+            interval=Duration.seconds(retry.interval_seconds),
+            backoff_rate=retry.backoff_rate,
+            max_attempts=retry.max_attempts,
+            jitter_strategy=sfn.JitterType.FULL,
+        )
+        invoke_gitlab_user.add_retry(
+            errors=[
+                "Lambda.ServiceException",
+                "Lambda.AWSLambdaException",
+                "Lambda.SdkClientException",
+                "Lambda.TooManyRequestsException",
+            ],
+            interval=Duration.seconds(retry.interval_seconds),
+            backoff_rate=retry.backoff_rate,
+            max_attempts=retry.max_attempts,
+            jitter_strategy=sfn.JitterType.FULL,
+        )
+
         invalid_workflow_input = sfn.Fail(
             self,
             "InvalidWorkflowInput",
@@ -84,9 +123,58 @@ class GenericWorkflow(Construct):
             cause="The generic processor failed",
         )
 
+        gitlab_configuration_failed = sfn.Fail(
+            self,
+            "GitLabConfigurationFailed",
+            state_name="GitLab configuration failed",
+            error="GitLabConfigurationFailed",
+            cause="GitLab configuration or authentication failed",
+        )
+
+        gitlab_provisioning_rejected = sfn.Fail(
+            self,
+            "GitLabProvisioningRejected",
+            state_name="GitLab provisioning rejected",
+            error="GitLabProvisioningRejected",
+            cause="GitLab user provisioning was rejected",
+        )
+
+        gitlab_integration_failed = sfn.Fail(
+            self,
+            "GitLabIntegrationFailed",
+            state_name="GitLab integration failed",
+            error="GitLabIntegrationFailed",
+            cause="The GitLab integration failed",
+        )
+
         invoke_processor.add_catch(
             invalid_workflow_input,
             errors=["InvalidInputError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_gitlab_user.add_catch(
+            invalid_workflow_input,
+            errors=["InvalidInputError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_gitlab_user.add_catch(
+            gitlab_configuration_failed,
+            errors=["ConfigurationError", "GitLabAuthenticationError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_gitlab_user.add_catch(
+            gitlab_provisioning_rejected,
+            errors=["GitLabIdentityConflictError", "GitLabRequestError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_gitlab_user.add_catch(
+            gitlab_integration_failed,
+            errors=["GitLabProtocolError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_gitlab_user.add_catch(
+            gitlab_integration_failed,
+            errors=["States.ALL"],
             result_path=sfn.JsonPath.DISCARD,
         )
         invoke_processor.add_catch(
@@ -126,10 +214,40 @@ class GenericWorkflow(Construct):
             invalid_workflow_input
         )
 
-        definition = route_action.when(
-            sfn.Condition.string_equals("$.action", "echo"),
-            validate_echo_input,
-        ).otherwise(unsupported_action)
+        validate_onboard_user_input = sfn.Choice(
+            self,
+            "ValidateOnboardUserInput",
+            state_name="Validate onboarding input",
+        )
+        valid_onboard_user_input = sfn.Condition.and_(
+            sfn.Condition.string_equals("$.schema_version", "1.0"),
+            sfn.Condition.is_present("$.request_id"),
+            sfn.Condition.is_string("$.request_id"),
+            sfn.Condition.is_present("$.payload.username"),
+            sfn.Condition.is_string("$.payload.username"),
+            sfn.Condition.is_present("$.payload.name"),
+            sfn.Condition.is_string("$.payload.name"),
+            sfn.Condition.is_present("$.payload.email"),
+            sfn.Condition.is_string("$.payload.email"),
+            sfn.Condition.is_present("$.payload.external"),
+            sfn.Condition.is_boolean("$.payload.external"),
+        )
+        validate_onboard_user_input.when(
+            valid_onboard_user_input,
+            invoke_gitlab_user,
+        ).otherwise(invalid_workflow_input)
+
+        definition = (
+            route_action.when(
+                sfn.Condition.string_equals("$.action", "echo"),
+                validate_echo_input,
+            )
+            .when(
+                sfn.Condition.string_equals("$.action", "onboard_user"),
+                validate_onboard_user_input,
+            )
+            .otherwise(unsupported_action)
+        )
 
         self.state_machine = sfn.StateMachine(
             self,

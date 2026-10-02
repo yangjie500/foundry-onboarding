@@ -11,8 +11,9 @@ has typed contracts and runtime configuration, a GitLab API adapter,
 reconciliation service, Lambda handler, separate deployment package, scoped
 Parameter Store permissions, optional custom CA support, and tests. Custom CA
 support is not activated in the current development configuration. The Lambda
-has not yet been connected to Step Functions or SQS, deployed, or validated end
-to end. Slack remains planned and unimplemented.
+is connected to Step Functions through the `onboard_user` route, but it has not
+been connected to SQS, deployed, or validated end to end. Slack remains planned
+and unimplemented.
 
 The current generic processor and its example Parameter Store values should
 remain available through deployment validation. Its runtime loader already
@@ -295,7 +296,8 @@ Resolve these before completing the end-to-end onboarding workflow:
 5. Finalize public SQS and onboarding contracts.
 6. Implement the separate Slack Lambda with its own configuration and
    least-privilege IAM.
-7. Add explicit Step Functions transformations, retries, and failure paths.
+7. Extend the existing explicit Step Functions transformation, retries, and
+   failure paths with the Slack task.
 8. Define idempotency and partial-success behavior across GitLab and Slack.
 9. Add end-to-end contract, infrastructure, and security assertions.
 10. Deploy the complete development workflow and run controlled fixtures.

@@ -423,15 +423,16 @@ than values, and a scoped `ssm:GetParameters` policy. It must not contain
 
 ## GitLab user Lambda configuration
 
-The independently deployable GitLab user Lambda reads its base URL and API
-token from two externally managed Parameter Store entries. Its contract,
+The GitLab user Lambda reads its base URL and API token from two externally
+managed Parameter Store entries. Its contract,
 required GitLab authorization, exact parameter names, network and TLS
 prerequisites, failure behavior, safe logging rules, and controlled invocation
 procedure are documented in the
 [GitLab user Lambda guide](gitlab-user-lambda.md).
 
-The function is not connected to Step Functions yet. Deploying it does not
-change the generic workflow definition.
+The generic Step Functions workflow invokes this function for the
+`onboard_user` action using an explicit input transformation. The workflow role
+can invoke the function but cannot read its Parameter Store configuration.
 
 ## Deploy the development stack
 

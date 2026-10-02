@@ -6,8 +6,9 @@ The GitLab user Lambda creates or reconciles one user in a self-managed GitLab
 instance. CDK defines it as `foundry-<environment>-gitlab-user` with the handler
 `foundry_onboarding.handlers.gitlab_user.handler`.
 
-The function is independently invokable. It is not connected to the generic
-Step Functions workflow or an SQS queue yet.
+The function is independently invokable and is also called by the generic Step
+Functions workflow for the `onboard_user` action. It is not connected to an SQS
+queue yet.
 
 For a valid request, the service:
 
@@ -231,9 +232,9 @@ identity.
 | `GitLabUnavailableError` | Network error, rate limit, or GitLab 5xx response | Retry with bounded backoff |
 | `GitLabProtocolError` | Unexpected status or malformed/incompatible response | Investigate compatibility before retrying |
 
-The future Step Functions integration must retry only transient failures. It
-must not place raw errors, provider responses, or credentials in execution
-history.
+The Step Functions integration retries only `GitLabUnavailableError` and AWS
+Lambda service failures. It discards caught error payloads and must not place
+raw errors, provider responses, or credentials in execution history.
 
 ## Logging and observability
 
@@ -267,10 +268,11 @@ aws sts get-caller-identity
 npx cdk diff foundry-dev -c env=dev --method change-set
 ```
 
-The GitLab portion of the diff should add one Lambda, one log group, one
+The GitLab portion of the diff should contain one Lambda, one log group, one
 execution role and scoped policy, one file asset, and the
-`GitLabUserFunctionName` output. It must not include either parameter value or
-connect the function to Step Functions.
+`GitLabUserFunctionName` output. The workflow role should gain permission to
+invoke the GitLab Lambda, and the state-machine definition should gain the
+`onboard_user` route. The diff must not include any parameter value.
 
 Deploy only after reviewing the diff:
 
@@ -298,3 +300,25 @@ Invoke the same request a second time to confirm reconciliation returns
 `existing` rather than creating another user. Verify the user independently in
 the GitLab administrator interface. Do not use a production identity for this
 development check.
+
+## Controlled workflow invocation
+
+After direct invocation succeeds, start the state machine with the workflow
+fixture. This can create a real GitLab account and requires the same review as
+direct invocation.
+
+```bash
+foundry_workflow_arn=$(aws cloudformation describe-stacks \
+  --stack-name foundry-dev \
+  --query "Stacks[0].Outputs[?OutputKey=='GenericWorkflowArn'].OutputValue" \
+  --output text)
+
+aws stepfunctions start-execution \
+  --state-machine-arn "$foundry_workflow_arn" \
+  --name onboarding-test-001 \
+  --input file://events/workflows/onboarding/valid.json
+```
+
+Use a unique execution name for later runs. A successful execution returns the
+same provider-safe `created` or `existing` output as the GitLab Lambda. The
+workflow explicitly transforms input and never passes credentials.
