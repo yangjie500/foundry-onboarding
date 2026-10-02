@@ -8,7 +8,9 @@ from foundry_onboarding.runtime_configuration import gitlab
 
 BASE_URL_PARAMETER_NAME = "/foundry/dev/gitlab/base-url"
 API_TOKEN_PARAMETER_NAME = "/foundry/dev/gitlab/api-token"
+CA_BUNDLE_PARAMETER_NAME = "/foundry/dev/gitlab/ca-bundle"
 API_TOKEN = "glpat-not-a-real-token"
+CA_BUNDLE_PEM = "-----BEGIN CERTIFICATE-----\nnot-a-real-certificate\n-----END CERTIFICATE-----"
 
 
 class FakeParameterStore:
@@ -68,6 +70,42 @@ def test_load_configuration_retrieves_both_parameters_with_decryption(
     assert store.calls == [([BASE_URL_PARAMETER_NAME, API_TOKEN_PARAMETER_NAME], True)]
 
 
+def test_load_configuration_retrieves_optional_ca_bundle_in_same_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = FakeParameterStore(
+        {
+            BASE_URL_PARAMETER_NAME: "https://gitlab.example.com",
+            API_TOKEN_PARAMETER_NAME: API_TOKEN,
+            CA_BUNDLE_PARAMETER_NAME: CA_BUNDLE_PEM,
+        }
+    )
+    _configure_environment(monkeypatch)
+    monkeypatch.setenv(gitlab.TLS_VERIFY_ENV, "true")
+    monkeypatch.setenv(gitlab.CA_BUNDLE_PARAMETER_ENV, CA_BUNDLE_PARAMETER_NAME)
+    monkeypatch.setattr(gitlab, "_create_parameter_store", lambda: store)
+
+    configuration = gitlab.load_gitlab_configuration()
+
+    assert configuration.ca_bundle_pem == CA_BUNDLE_PEM
+    assert store.calls == [
+        (
+            [BASE_URL_PARAMETER_NAME, API_TOKEN_PARAMETER_NAME, CA_BUNDLE_PARAMETER_NAME],
+            True,
+        )
+    ]
+
+
+def test_loader_rejects_blank_optional_ca_parameter_environment_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_environment(monkeypatch)
+    monkeypatch.setenv(gitlab.CA_BUNDLE_PARAMETER_ENV, "   ")
+
+    with pytest.raises(ConfigurationError, match="must not be blank"):
+        gitlab.load_gitlab_configuration()
+
+
 def test_configuration_masks_token_and_is_immutable() -> None:
     configuration = gitlab.GitLabConfiguration.model_validate(
         {
@@ -80,6 +118,42 @@ def test_configuration_masks_token_and_is_immutable() -> None:
     assert "**********" in repr(configuration)
     with pytest.raises(ValidationError, match="Instance is frozen"):
         configuration.api_token = configuration.api_token
+
+
+def test_configuration_hides_ca_bundle_from_representation() -> None:
+    configuration = gitlab.GitLabConfiguration.model_validate(
+        {
+            "base_url": "https://gitlab.example.com",
+            "api_token": API_TOKEN,
+            "ca_bundle_pem": CA_BUNDLE_PEM,
+        }
+    )
+
+    assert CA_BUNDLE_PEM not in repr(configuration)
+
+
+@pytest.mark.parametrize("ca_bundle_pem", ["", "   "])
+def test_configuration_rejects_empty_or_blank_ca_bundle(ca_bundle_pem: str) -> None:
+    with pytest.raises(ValidationError):
+        gitlab.GitLabConfiguration.model_validate(
+            {
+                "base_url": "https://gitlab.example.com",
+                "api_token": API_TOKEN,
+                "ca_bundle_pem": ca_bundle_pem,
+            }
+        )
+
+
+def test_configuration_rejects_custom_ca_when_tls_verification_is_disabled() -> None:
+    with pytest.raises(ValidationError, match="GitLab custom CA requires TLS verification"):
+        gitlab.GitLabConfiguration.model_validate(
+            {
+                "base_url": "https://gitlab.example.com",
+                "api_token": API_TOKEN,
+                "ca_bundle_pem": CA_BUNDLE_PEM,
+                "tls_verify": False,
+            }
+        )
 
 
 def test_tls_verification_defaults_to_enabled(

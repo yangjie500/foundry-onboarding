@@ -18,11 +18,13 @@ from foundry_onboarding.adapters.aws.parameter_store import (
 from foundry_onboarding.errors import ConfigurationError
 from foundry_onboarding.runtime_configuration.environment import (
     boolean_environment_variable,
+    optional_environment_variable,
     required_environment_variable,
 )
 
 BASE_URL_PARAMETER_ENV = "GITLAB_BASE_URL_PARAMETER_NAME"
 API_TOKEN_PARAMETER_ENV = "GITLAB_API_TOKEN_PARAMETER_NAME"
+CA_BUNDLE_PARAMETER_ENV = "GITLAB_CA_BUNDLE_PARAMETER_NAME"
 TLS_VERIFY_ENV = "GITLAB_TLS_VERIFY"
 
 
@@ -33,6 +35,7 @@ class GitLabConfiguration(BaseModel):
 
     base_url: HttpUrl
     api_token: Annotated[SecretStr, Field(min_length=1)]
+    ca_bundle_pem: str | None = Field(default=None, min_length=1, repr=False)
     tls_verify: StrictBool = True
 
     @model_validator(mode="after")
@@ -49,6 +52,10 @@ class GitLabConfiguration(BaseModel):
             raise ValueError("GitLab base URL must not contain an API endpoint path")
         if not self.api_token.get_secret_value().strip():
             raise ValueError("GitLab API token must not be blank")
+        if self.ca_bundle_pem is not None and not self.ca_bundle_pem.strip():
+            raise ValueError("GitLab CA bundle must not be blank")
+        if self.ca_bundle_pem is not None and not self.tls_verify:
+            raise ValueError("GitLab custom CA requires TLS verification")
 
         return self
 
@@ -62,9 +69,14 @@ def load_gitlab_configuration() -> GitLabConfiguration:
 
     base_url_parameter_name = required_environment_variable(BASE_URL_PARAMETER_ENV)
     api_token_parameter_name = required_environment_variable(API_TOKEN_PARAMETER_ENV)
+    ca_bundle_parameter_name = optional_environment_variable(CA_BUNDLE_PARAMETER_ENV)
     tls_verify = boolean_environment_variable(TLS_VERIFY_ENV, default=True)
+    parameter_names = [base_url_parameter_name, api_token_parameter_name]
+    if ca_bundle_parameter_name is not None:
+        parameter_names.append(ca_bundle_parameter_name)
+
     values = _create_parameter_store().get_parameters(
-        [base_url_parameter_name, api_token_parameter_name],
+        parameter_names,
         with_decryption=True,
     )
 
@@ -73,6 +85,11 @@ def load_gitlab_configuration() -> GitLabConfiguration:
             {
                 "base_url": values[base_url_parameter_name],
                 "api_token": values[api_token_parameter_name],
+                "ca_bundle_pem": (
+                    values[ca_bundle_parameter_name]
+                    if ca_bundle_parameter_name is not None
+                    else None
+                ),
                 "tls_verify": tls_verify,
             }
         )

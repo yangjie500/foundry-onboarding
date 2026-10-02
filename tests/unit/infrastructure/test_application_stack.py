@@ -10,9 +10,20 @@ from infrastructure.configuration import EnvironmentName, load_environment_confi
 from infrastructure.stacks.application_stack import ApplicationStack
 
 
-def _template(environment: EnvironmentName = "dev") -> Template:
+def _template(
+    environment: EnvironmentName = "dev",
+    *,
+    ca_bundle_parameter_name: str | None = None,
+) -> Template:
     app = cdk.App()
     config = load_environment_config(environment)
+    if ca_bundle_parameter_name is not None:
+        raw_config = config.model_dump()
+        integrations = cast(dict[str, Any], raw_config["integrations"])
+        gitlab = cast(dict[str, Any], integrations["gitlab"])
+        gitlab["ca_bundle_parameter_name"] = ca_bundle_parameter_name
+        gitlab["tls_verify"] = True
+        config = config.model_validate(raw_config)
     stack = ApplicationStack(
         app,
         f"test-foundry-{environment}",
@@ -221,6 +232,43 @@ def test_application_stack_configures_parameter_store_access() -> None:
     template_json = json.dumps(template.to_json())
     assert "not-a-real-secret" not in template_json
     assert "glpat-" not in template_json
+
+
+def test_application_stack_configures_optional_gitlab_ca_bundle_access() -> None:
+    ca_bundle_parameter_name = "/foundry/dev/gitlab/ca-bundle"
+    template = _template(ca_bundle_parameter_name=ca_bundle_parameter_name)
+
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Environment": {
+                "Variables": Match.object_like(
+                    {
+                        "GITLAB_CA_BUNDLE_PARAMETER_NAME": ca_bundle_parameter_name,
+                        "GITLAB_TLS_VERIFY": "true",
+                    }
+                )
+            },
+            "FunctionName": "foundry-dev-gitlab-user",
+        },
+    )
+
+    policies = cast(
+        dict[str, dict[str, Any]],
+        template.find_resources("AWS::IAM::Policy"),
+    )
+    gitlab_statement = next(
+        statement
+        for policy in policies.values()
+        for statement in policy["Properties"]["PolicyDocument"]["Statement"]
+        if statement["Action"] == "ssm:GetParameters"
+        and "gitlab/ca-bundle" in json.dumps(statement["Resource"])
+    )
+    resources = json.dumps(gitlab_statement["Resource"])
+    assert "parameter/foundry/dev/gitlab/base-url" in resources
+    assert "parameter/foundry/dev/gitlab/api-token" in resources
+    assert "parameter/foundry/dev/gitlab/ca-bundle" in resources
+    assert len(json.loads(resources)) == 3
 
 
 def test_workflow_definition_and_policy_reference_the_processor() -> None:

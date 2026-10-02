@@ -54,6 +54,7 @@ Development expects these externally managed parameters:
 | --- | --- | --- |
 | `/foundry/dev/gitlab/base-url` | `String` | GitLab origin, for example `https://gitlab.example.com` |
 | `/foundry/dev/gitlab/api-token` | `SecureString` | GitLab administrator API token |
+| `/foundry/dev/gitlab/ca-bundle` | `String` | Optional public CA certificate bundle for the GitLab server |
 
 The user explicitly selected Parameter Store `SecureString` for the current
 token design. Secrets Manager remains the preferred future location for a
@@ -77,9 +78,10 @@ aws ssm get-parameters \
   --output table
 ```
 
-The expected types are `String` and `SecureString`. If the secure parameter
-uses a customer-managed KMS key, the Lambda role also needs `kms:Decrypt` for
-that exact key. Step 9 currently assumes the default AWS-managed SSM key.
+The expected required types are `String` and `SecureString`; the optional CA
+bundle is another `String`. If the secure parameter uses a customer-managed KMS
+key, the Lambda role also needs `kms:Decrypt` for that exact key. Step 9
+currently assumes the default AWS-managed SSM key.
 
 CDK puts only these references in the Lambda environment:
 
@@ -90,11 +92,18 @@ GITLAB_API_TOKEN_PARAMETER_NAME=/foundry/dev/gitlab/api-token
 GITLAB_TLS_VERIFY=false
 ```
 
-The role receives `ssm:GetParameters` for exactly the two corresponding ARNs.
-At invocation time, the runtime loader retrieves them together with decryption
-enabled and validates the resulting URL and nonblank token. Values are loaded
-on every invocation so a parameter update does not depend on warm-container
-cache expiry.
+When custom CA verification is activated, the environment instead includes:
+
+```text
+GITLAB_CA_BUNDLE_PARAMETER_NAME=/foundry/dev/gitlab/ca-bundle
+GITLAB_TLS_VERIFY=true
+```
+
+The role receives `ssm:GetParameters` for exactly the configured parameter
+ARNs. At invocation time, the runtime loader retrieves them together with
+decryption enabled and validates the resulting URL, nonblank token, and
+optional CA bundle. Values are loaded on every invocation so a parameter update
+does not depend on warm-container cache expiry.
 
 ## TLS behavior
 
@@ -105,8 +114,61 @@ client emits a warning whenever verification is disabled.
 Staging and production configuration require `GITLAB_TLS_VERIFY=true`; the
 configuration model rejects disabling it outside development. Sending a token
 over an unverified TLS connection is vulnerable to interception, so use the
-development exception only in a controlled network. Custom CA bundle support
-is planned for Step 11 and should replace this exception.
+development exception only in a controlled network.
+
+Custom CA support is implemented but is not activated in the checked-in
+development configuration. When configured, the client creates a default SSL
+context containing the normal operating-system trust roots and adds the public
+CA bundle in memory. Certificate and hostname verification remain enabled. An
+invalid PEM bundle becomes a safe `ConfigurationError` without logging the
+certificate contents.
+
+### Activate a custom CA in development
+
+Export the public root CA and any required intermediate CA certificates in PEM
+format. Do not export or store the CA private key, the GitLab server private
+key, or a PKCS#12 file containing private-key material. The certificate subject
+alternative name presented by GitLab must match the hostname in the configured
+base URL.
+
+Create or update the public bundle as a Parameter Store `String`. The
+certificate is public trust material rather than a credential, but it must
+still be change-controlled:
+
+```bash
+aws ssm put-parameter \
+  --name /foundry/dev/gitlab/ca-bundle \
+  --description "Public CA bundle used to verify the development GitLab server" \
+  --type String \
+  --value file://path/to/gitlab-ca-bundle.pem \
+  --overwrite \
+  --region us-east-1
+```
+
+Confirm only its metadata:
+
+```bash
+aws ssm get-parameter \
+  --name /foundry/dev/gitlab/ca-bundle \
+  --region us-east-1 \
+  --query 'Parameter.{Name:Name,Type:Type,Version:Version}' \
+  --output table
+```
+
+Then change `config/dev.yaml` to:
+
+```yaml
+integrations:
+  gitlab:
+    base_url_parameter_name: /foundry/dev/gitlab/base-url
+    api_token_parameter_name: /foundry/dev/gitlab/api-token
+    ca_bundle_parameter_name: /foundry/dev/gitlab/ca-bundle
+    tls_verify: true
+```
+
+Package, test, and review the CDK diff before deployment. The diff should add
+the CA parameter name to the Lambda environment and its exact ARN to the
+existing `ssm:GetParameters` statement. It must not contain the PEM value.
 
 ## Input contract
 

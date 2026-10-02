@@ -81,6 +81,7 @@ def test_load_environment_config(
     assert config.integrations.gitlab.api_token_parameter_name == (
         f"/foundry/{environment}/gitlab/api-token"
     )
+    assert config.integrations.gitlab.ca_bundle_parameter_name is None
     assert config.integrations.gitlab.tls_verify is (environment != "dev")
 
 
@@ -97,6 +98,7 @@ def test_load_environment_config(
         ("parameters", "generic_secret_name", "missing-leading-slash"),
         ("integrations.gitlab", "base_url_parameter_name", "missing-leading-slash"),
         ("integrations.gitlab", "api_token_parameter_name", "missing-leading-slash"),
+        ("integrations.gitlab", "ca_bundle_parameter_name", "missing-leading-slash"),
     ],
 )
 def test_environment_config_rejects_invalid_settings(
@@ -147,6 +149,34 @@ def test_environment_config_rejects_duplicate_gitlab_parameter_names() -> None:
     gitlab["api_token_parameter_name"] = gitlab["base_url_parameter_name"]
 
     with pytest.raises(ValidationError, match="GitLab parameter names must be distinct"):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+@pytest.mark.parametrize("duplicate_field", ["base_url_parameter_name", "api_token_parameter_name"])
+def test_environment_config_rejects_duplicate_gitlab_ca_parameter_name(
+    duplicate_field: str,
+) -> None:
+    raw_config = _valid_config()
+    integrations = raw_config["integrations"]
+    assert isinstance(integrations, dict)
+    gitlab = integrations["gitlab"]
+    assert isinstance(gitlab, dict)
+    gitlab["tls_verify"] = True
+    gitlab["ca_bundle_parameter_name"] = gitlab[duplicate_field]
+
+    with pytest.raises(ValidationError, match="GitLab parameter names must be distinct"):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_rejects_custom_ca_when_tls_verification_is_disabled() -> None:
+    raw_config = _valid_config()
+    integrations = raw_config["integrations"]
+    assert isinstance(integrations, dict)
+    gitlab = integrations["gitlab"]
+    assert isinstance(gitlab, dict)
+    gitlab["ca_bundle_parameter_name"] = "/foundry/dev/gitlab/ca-bundle"
+
+    with pytest.raises(ValidationError, match="GitLab custom CA requires TLS verification"):
         EnvironmentConfig.model_validate(raw_config)
 
 

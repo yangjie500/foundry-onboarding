@@ -12,6 +12,7 @@ from urllib3.exceptions import HTTPError
 
 from foundry_onboarding.contracts.gitlab_user import GitLabUserInput
 from foundry_onboarding.errors import (
+    ConfigurationError,
     GitLabAuthenticationError,
     GitLabProtocolError,
     GitLabRequestError,
@@ -197,10 +198,17 @@ def create_gitlab_client(configuration: GitLabConfiguration) -> GitLabClient:
 
     if not configuration.tls_verify:
         logger.warning("GitLab TLS certificate verification is disabled for development")
+        pool = urllib3.PoolManager(cert_reqs=ssl.CERT_NONE)
+    elif configuration.ca_bundle_pem is not None:
+        ssl_context = ssl.create_default_context()
+        try:
+            ssl_context.load_verify_locations(cadata=configuration.ca_bundle_pem)
+        except ssl.SSLError:
+            raise ConfigurationError("GitLab CA bundle is invalid") from None
+        pool = urllib3.PoolManager(ssl_context=ssl_context)
+    else:
+        pool = urllib3.PoolManager(cert_reqs=ssl.CERT_REQUIRED)
 
-    pool = urllib3.PoolManager(
-        cert_reqs=ssl.CERT_REQUIRED if configuration.tls_verify else ssl.CERT_NONE
-    )
     return GitLabClient(
         base_url=str(configuration.base_url).rstrip("/"),
         api_token=configuration.api_token.get_secret_value(),

@@ -13,6 +13,18 @@ def required_environment_variable(name: str) -> str:
     return value
 
 
+def optional_environment_variable(name: str) -> str | None:
+    """Return a non-empty optional environment variable when configured."""
+
+    value = os.environ.get(name)
+    if value is None:
+        return None
+    if not value.strip():
+        raise ConfigurationError(f"Environment variable {name} must not be blank")
+
+    return value
+
+
 def boolean_environment_variable(name: str, *, default: bool) -> bool:
     """Return a strict boolean environment variable or its default."""
 

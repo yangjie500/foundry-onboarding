@@ -16,6 +16,7 @@ from foundry_onboarding.adapters.gitlab.client import (
 )
 from foundry_onboarding.contracts.gitlab_user import GitLabUserInput
 from foundry_onboarding.errors import (
+    ConfigurationError,
     GitLabAuthenticationError,
     GitLabProtocolError,
     GitLabRequestError,
@@ -24,6 +25,7 @@ from foundry_onboarding.errors import (
 from foundry_onboarding.runtime_configuration.gitlab import GitLabConfiguration
 
 API_TOKEN = "glpat-not-a-real-token"
+CA_BUNDLE_PEM = "-----BEGIN CERTIFICATE-----\nnot-a-real-certificate\n-----END CERTIFICATE-----"
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,3 +321,70 @@ def test_create_client_applies_tls_configuration(
     assert client.http is pool
     assert API_TOKEN not in caplog.text
     assert ("TLS certificate verification is disabled" in caplog.text) is (not tls_verify)
+
+
+def test_create_client_augments_default_trust_with_custom_ca(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pools: list[dict[str, object]] = []
+    pool = FakeHttpPool()
+
+    class FakeSslContext:
+        def __init__(self) -> None:
+            self.ca_data: str | None = None
+
+        def load_verify_locations(self, *, cadata: str) -> None:
+            self.ca_data = cadata
+
+    ssl_context = FakeSslContext()
+
+    def create_default_context() -> ssl.SSLContext:
+        return cast(ssl.SSLContext, ssl_context)
+
+    def create_pool(**kwargs: object) -> FakeHttpPool:
+        pools.append(kwargs)
+        return pool
+
+    monkeypatch.setattr(ssl, "create_default_context", create_default_context)
+    monkeypatch.setattr(urllib3, "PoolManager", create_pool)
+    configuration = GitLabConfiguration.model_validate(
+        {
+            "base_url": "https://gitlab.example.com",
+            "api_token": API_TOKEN,
+            "ca_bundle_pem": CA_BUNDLE_PEM,
+            "tls_verify": True,
+        }
+    )
+
+    client = create_gitlab_client(configuration)
+
+    assert ssl_context.ca_data == CA_BUNDLE_PEM
+    assert pools == [{"ssl_context": ssl_context}]
+    assert client.http is pool
+
+
+def test_create_client_translates_invalid_custom_ca_without_exposing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InvalidSslContext:
+        def load_verify_locations(self, *, cadata: str) -> None:
+            raise ssl.SSLError(f"invalid certificate: {cadata}")
+
+    def create_default_context() -> ssl.SSLContext:
+        return cast(ssl.SSLContext, InvalidSslContext())
+
+    monkeypatch.setattr(ssl, "create_default_context", create_default_context)
+    configuration = GitLabConfiguration.model_validate(
+        {
+            "base_url": "https://gitlab.example.com",
+            "api_token": API_TOKEN,
+            "ca_bundle_pem": CA_BUNDLE_PEM,
+            "tls_verify": True,
+        }
+    )
+
+    with pytest.raises(ConfigurationError, match="GitLab CA bundle is invalid") as raised:
+        create_gitlab_client(configuration)
+
+    assert raised.value.__cause__ is None
+    assert CA_BUNDLE_PEM not in str(raised.value)

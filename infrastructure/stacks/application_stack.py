@@ -70,6 +70,11 @@ class ApplicationStack(Stack):
             "GITLAB_TLS_VERIFY",
             str(gitlab_config.tls_verify).lower(),
         )
+        if gitlab_config.ca_bundle_parameter_name is not None:
+            self.gitlab_user.add_environment(
+                "GITLAB_CA_BUNDLE_PARAMETER_NAME",
+                gitlab_config.ca_bundle_parameter_name,
+            )
 
         gitlab_parameter_arns = [
             self.format_arn(
@@ -77,9 +82,13 @@ class ApplicationStack(Stack):
                 resource="parameter",
                 resource_name=parameter_name.removeprefix("/"),
             )
-            for parameter_name in (
-                gitlab_config.base_url_parameter_name,
-                gitlab_config.api_token_parameter_name,
+            for parameter_name in filter(
+                None,
+                (
+                    gitlab_config.base_url_parameter_name,
+                    gitlab_config.api_token_parameter_name,
+                    gitlab_config.ca_bundle_parameter_name,
+                ),
             )
         ]
         self.gitlab_user.add_to_role_policy(

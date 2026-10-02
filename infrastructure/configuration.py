@@ -66,12 +66,28 @@ class GitLabSettings(SettingsModel):
         max_length=1_011,
         pattern=r"^/[A-Za-z0-9_.\-/]+$",
     )
+    ca_bundle_parameter_name: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=1_011,
+        pattern=r"^/[A-Za-z0-9_.\-/]+$",
+    )
     tls_verify: bool = True
 
     @model_validator(mode="after")
-    def parameter_names_must_be_distinct(self) -> Self:
-        if self.base_url_parameter_name == self.api_token_parameter_name:
+    def validate_gitlab_settings(self) -> Self:
+        parameter_names = {
+            self.base_url_parameter_name,
+            self.api_token_parameter_name,
+        }
+        if self.ca_bundle_parameter_name is not None:
+            parameter_names.add(self.ca_bundle_parameter_name)
+
+        expected_parameter_count = 3 if self.ca_bundle_parameter_name is not None else 2
+        if len(parameter_names) != expected_parameter_count:
             raise ValueError("GitLab parameter names must be distinct")
+        if self.ca_bundle_parameter_name is not None and not self.tls_verify:
+            raise ValueError("GitLab custom CA requires TLS verification")
 
         return self
 
