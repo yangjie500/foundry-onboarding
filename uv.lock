@@ -315,6 +315,10 @@ infra = [
 ]
 lambda-generic = [
     { name = "boto3" },
+    { name = "pydantic" },
+]
+lambda-gitlab = [
+    { name = "boto3" },
     { name = "email-validator" },
     { name = "pydantic" },
     { name = "urllib3" },
@@ -338,6 +342,10 @@ infra = [
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 lambda-generic = [
+    { name = "boto3", specifier = ">=1.43.105" },
+    { name = "pydantic", specifier = ">=2.13.5" },
+]
+lambda-gitlab = [
     { name = "boto3", specifier = ">=1.43.105" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "pydantic", specifier = ">=2.13.5" },

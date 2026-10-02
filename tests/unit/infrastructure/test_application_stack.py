@@ -20,6 +20,7 @@ def _template(environment: EnvironmentName = "dev") -> Template:
         generic_processor_code=lambda_.Code.from_inline(
             "def handler(event, context): return event"
         ),
+        gitlab_user_code=lambda_.Code.from_inline("def handler(event, context): return event"),
         env=cdk.Environment(
             account="111111111111",
             region=config.aws_region,
@@ -44,8 +45,11 @@ def test_application_stack_defaults_to_packaged_processor_asset(
     config = load_environment_config("dev")
     ApplicationStack(app, "test-default-asset", config=config)
 
-    assert len(asset_paths) == 1
-    assert asset_paths[0].endswith("/build/generic-processor")
+    assert len(asset_paths) == 2
+    assert {path.rsplit("/", maxsplit=1)[-1] for path in asset_paths} == {
+        "generic-processor",
+        "gitlab-user",
+    }
 
 
 def _logical_id(template: Template, resource_type: str) -> str:
@@ -54,13 +58,22 @@ def _logical_id(template: Template, resource_type: str) -> str:
     return next(iter(resources))
 
 
+def _function_logical_id(template: Template, function_name: str) -> str:
+    resources = template.find_resources(
+        "AWS::Lambda::Function",
+        {"Properties": {"FunctionName": function_name}},
+    )
+    assert len(resources) == 1
+    return next(iter(resources))
+
+
 def test_application_stack_creates_expected_resource_graph() -> None:
     template = _template()
 
-    template.resource_count_is("AWS::Lambda::Function", 1)
+    template.resource_count_is("AWS::Lambda::Function", 2)
     template.resource_count_is("AWS::StepFunctions::StateMachine", 1)
-    template.resource_count_is("AWS::Logs::LogGroup", 2)
-    template.resource_count_is("AWS::IAM::Role", 2)
+    template.resource_count_is("AWS::Logs::LogGroup", 3)
+    template.resource_count_is("AWS::IAM::Role", 3)
     template.resource_count_is("AWS::SSM::Parameter", 1)
 
 
@@ -109,6 +122,32 @@ def test_application_stack_applies_environment_configuration(
         },
     )
     template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Architectures": ["x86_64"],
+            "Description": "Create or reconcile a GitLab user",
+            "Environment": {
+                "Variables": {
+                    "APP_ENV": environment,
+                    "GITLAB_BASE_URL_PARAMETER_NAME": (f"/foundry/{environment}/gitlab/base-url"),
+                    "GITLAB_API_TOKEN_PARAMETER_NAME": (f"/foundry/{environment}/gitlab/api-token"),
+                    "GITLAB_TLS_VERIFY": "false" if environment == "dev" else "true",
+                }
+            },
+            "FunctionName": f"foundry-{environment}-gitlab-user",
+            "Handler": "foundry_onboarding.handlers.gitlab_user.handler",
+            "LoggingConfig": {
+                "ApplicationLogLevel": "INFO",
+                "LogFormat": "JSON",
+                "SystemLogLevel": "WARN",
+            },
+            "MemorySize": 256,
+            "Runtime": "python3.14",
+            "Timeout": 30,
+            "TracingConfig": {"Mode": "Active"},
+        },
+    )
+    template.has_resource_properties(
         "AWS::StepFunctions::StateMachine",
         {
             "LoggingConfiguration": {
@@ -125,7 +164,7 @@ def test_application_stack_applies_environment_configuration(
         dict[str, dict[str, Any]],
         template.find_resources("AWS::Logs::LogGroup"),
     )
-    assert len(log_groups) == 2
+    assert len(log_groups) == 3
     for log_group in log_groups.values():
         assert log_group["Properties"]["RetentionInDays"] == retention_days
         assert log_group["DeletionPolicy"] == removal_policy
@@ -163,19 +202,33 @@ def test_application_stack_configures_parameter_store_access() -> None:
         for statement in policy["Properties"]["PolicyDocument"]["Statement"]
         if statement["Action"] == "ssm:GetParameters"
     ]
-    assert len(statements) == 1
+    assert len(statements) == 2
 
-    resource_json = json.dumps(statements[0]["Resource"])
-    assert "GenericExampleVariable" in resource_json
-    assert "parameter/foundry/dev/generic/example-secret" in resource_json
+    resource_documents = [json.dumps(statement["Resource"]) for statement in statements]
+    generic_resources = next(
+        resources for resources in resource_documents if "GenericExampleVariable" in resources
+    )
+    assert "parameter/foundry/dev/generic/example-secret" in generic_resources
+
+    gitlab_resources = next(
+        resources for resources in resource_documents if "gitlab/base-url" in resources
+    )
+    assert "parameter/foundry/dev/gitlab/base-url" in gitlab_resources
+    assert "parameter/foundry/dev/gitlab/api-token" in gitlab_resources
+    assert "generic" not in gitlab_resources
+    assert len(json.loads(gitlab_resources)) == 2
 
     template_json = json.dumps(template.to_json())
     assert "not-a-real-secret" not in template_json
+    assert "glpat-" not in template_json
 
 
 def test_workflow_definition_and_policy_reference_the_processor() -> None:
     template = _template()
-    processor_logical_id = _logical_id(template, "AWS::Lambda::Function")
+    processor_logical_id = _function_logical_id(
+        template,
+        "foundry-dev-generic-processor",
+    )
 
     processor_arn = {"Fn::GetAtt": [processor_logical_id, "Arn"]}
     template.has_resource_properties(
@@ -217,7 +270,14 @@ def test_workflow_definition_and_policy_reference_the_processor() -> None:
 
 def test_stack_outputs_reference_created_resources() -> None:
     template = _template()
-    processor_logical_id = _logical_id(template, "AWS::Lambda::Function")
+    processor_logical_id = _function_logical_id(
+        template,
+        "foundry-dev-generic-processor",
+    )
+    gitlab_user_logical_id = _function_logical_id(
+        template,
+        "foundry-dev-gitlab-user",
+    )
     workflow_logical_id = _logical_id(template, "AWS::StepFunctions::StateMachine")
 
     template.has_output(
@@ -232,5 +292,12 @@ def test_stack_outputs_reference_created_resources() -> None:
         {
             "Description": "ARN of the generic onboarding workflow",
             "Value": {"Ref": workflow_logical_id},
+        },
+    )
+    template.has_output(
+        "GitLabUserFunctionName",
+        {
+            "Description": "Name of the GitLab user Lambda",
+            "Value": {"Ref": gitlab_user_logical_id},
         },
     )

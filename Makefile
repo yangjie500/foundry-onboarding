@@ -8,9 +8,11 @@ install:
 
 requirements:
 	uv export --locked --only-group lambda-generic --no-emit-project --format requirements.txt --output-file requirements/generic-processor.txt
+	uv export --locked --only-group lambda-gitlab --no-emit-project --format requirements.txt --output-file requirements/gitlab-user.txt
 
 package: requirements
-	./scripts/build-lambda-asset.sh
+	./scripts/build-lambda-asset.sh generic-processor
+	./scripts/build-lambda-asset.sh gitlab-user
 
 format:
 	uv run ruff format .
