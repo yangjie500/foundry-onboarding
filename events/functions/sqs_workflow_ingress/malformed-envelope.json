@@ -1,0 +1,9 @@
+{
+  "Records": [
+    {
+      "messageId": "contains unsafe whitespace",
+      "body": "{}",
+      "eventSource": "aws:sqs"
+    }
+  ]
+}

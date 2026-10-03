@@ -19,6 +19,12 @@ class ConfigurationError(ApplicationError):
     error_code: ClassVar[str] = "CONFIGURATION_ERROR"
 
 
+class WorkflowStartError(ApplicationError):
+    """Raised when an onboarding workflow execution cannot be started."""
+
+    error_code: ClassVar[str] = "WORKFLOW_START_ERROR"
+
+
 class GitLabAuthenticationError(ApplicationError):
     """Raised when GitLab rejects the configured API credential."""
 

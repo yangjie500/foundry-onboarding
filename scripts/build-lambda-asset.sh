@@ -17,8 +17,13 @@ case "${1:-}" in
         readonly REQUIREMENTS_FILE="gitlab-user.txt"
         readonly HANDLER_IMPORT="foundry_onboarding.handlers.gitlab_user.handler"
         ;;
+    sqs-workflow-ingress)
+        readonly ASSET_NAME="sqs-workflow-ingress"
+        readonly REQUIREMENTS_FILE="sqs-workflow-ingress.txt"
+        readonly HANDLER_IMPORT="foundry_onboarding.handlers.sqs_workflow_ingress.handler"
+        ;;
     *)
-        echo "Usage: $0 {generic-processor|gitlab-user}" >&2
+        echo "Usage: $0 {generic-processor|gitlab-user|sqs-workflow-ingress}" >&2
         exit 2
         ;;
 esac
@@ -26,7 +31,9 @@ esac
 readonly ASSET_DIRECTORY="${REPOSITORY_ROOT}/build/${ASSET_NAME}"
 
 case "${ASSET_DIRECTORY}" in
-    "${REPOSITORY_ROOT}/build/generic-processor" | "${REPOSITORY_ROOT}/build/gitlab-user") ;;
+    "${REPOSITORY_ROOT}/build/generic-processor" | \
+        "${REPOSITORY_ROOT}/build/gitlab-user" | \
+        "${REPOSITORY_ROOT}/build/sqs-workflow-ingress") ;;
     *)
         echo "Refusing to clean unexpected asset directory: ${ASSET_DIRECTORY}" >&2
         exit 1
@@ -60,6 +67,15 @@ docker run --rm \
 test -d "${ASSET_DIRECTORY}/foundry_onboarding"
 test -d "${ASSET_DIRECTORY}/pydantic"
 test -d "${ASSET_DIRECTORY}/pydantic_core"
+
+if [[ "${ASSET_NAME}" == "gitlab-user" || "${ASSET_NAME}" == "sqs-workflow-ingress" ]]; then
+    test -d "${ASSET_DIRECTORY}/email_validator"
+fi
+
+if [[ "${ASSET_NAME}" == "sqs-workflow-ingress" ]]; then
+    test -d "${ASSET_DIRECTORY}/boto3"
+    test -d "${ASSET_DIRECTORY}/botocore"
+fi
 
 if ! find "${ASSET_DIRECTORY}/pydantic_core" -maxdepth 1 -type f -name '*.so' -print -quit \
     | grep -q .; then

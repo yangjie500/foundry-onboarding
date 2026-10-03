@@ -1,0 +1,17 @@
+{
+  "Records": [
+    {
+      "messageId": "11111111-1111-4111-8111-111111111111",
+      "receiptHandle": "not-a-real-receipt-handle",
+      "body": "{\"schema_version\":\"1.0\",\"request_id\":\"f084a40c-2d45-4bc9-96b2-d650bb746413\",\"action\":\"onboard_user\",\"payload\":{\"username\":\"jane.smith\",\"name\":\"Jane Smith\",\"email\":\"jane.smith@example.com\",\"external\":false}}",
+      "attributes": {
+        "ApproximateReceiveCount": "1"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "not-a-real-md5",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:111122223333:foundry-dev-onboarding",
+      "awsRegion": "us-east-1"
+    }
+  ]
+}

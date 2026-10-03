@@ -23,6 +23,11 @@ lambda-gitlab = [
     "pydantic>=2.13.5",
     "urllib3>=2.8.0",
 ]
+lambda-sqs-ingress = [
+    "boto3>=1.43.105",
+    "email-validator>=2.3.0",
+    "pydantic>=2.13.5",
+]
 dev = [
     "boto3-stubs[secretsmanager,ssm]>=1.43.105",
     "mypy>=2.3.1",
@@ -33,7 +38,7 @@ dev = [
 ]
 
 [tool.uv]
-default-groups = ["dev", "infra", "lambda-generic", "lambda-gitlab"]
+default-groups = ["dev", "infra", "lambda-generic", "lambda-gitlab", "lambda-sqs-ingress"]
 
 [tool.ruff]
 target-version = "py314"

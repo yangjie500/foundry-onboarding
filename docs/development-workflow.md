@@ -54,17 +54,19 @@ Dependencies are separated by where they are used:
 | `infra` | CDK synthesis and infrastructure configuration | AWS CDK, Pydantic, PyYAML |
 | `lambda-generic` | Code required by the generic processor in Lambda | Pydantic |
 | `lambda-gitlab` | Code required by the GitLab user Lambda | Pydantic, email-validator, urllib3 |
+| `lambda-sqs-ingress` | Code required by the SQS workflow-ingress Lambda | boto3, Pydantic, email-validator |
 | `dev` | Local quality and test tools | pytest, Ruff, mypy |
 
 The groups are declared in `pyproject.toml`. A normal `uv sync --locked`
-installs all four groups for local development.
+installs all five groups for local development.
 
 ### Adding or changing a Lambda dependency
 
 Add the dependency to the group for the Lambda that imports it:
-`lambda-generic` or `lambda-gitlab`. Add it to both only when both deployment
-packages require it. If the infrastructure code imports the same dependency,
-add it to `infra` as well. Then update and validate the generated files:
+`lambda-generic`, `lambda-gitlab`, or `lambda-sqs-ingress`. Add it to multiple
+groups only when those deployment packages require it. If the infrastructure
+code imports the same dependency, add it to `infra` as well. Then update and
+validate the generated files:
 
 ```bash
 uv lock
@@ -119,12 +121,14 @@ existing artifacts do not update automatically when source files change.
 
 - `lambda-generic` to `requirements/generic-processor.txt`.
 - `lambda-gitlab` to `requirements/gitlab-user.txt`.
+- `lambda-sqs-ingress` to `requirements/sqs-workflow-ingress.txt`.
 
 Each export contains exact versions and package hashes.
 
-`make package` refreshes both requirements files and invokes
+`make package` refreshes all three requirements files and invokes
 `scripts/build-lambda-asset.sh` once for each supported target. The guarded
-script accepts only `generic-processor` or `gitlab-user`. For each target it:
+script accepts only `generic-processor`, `gitlab-user`, or
+`sqs-workflow-ingress`. For each target it:
 
 1. Recreates only the selected directory under `build/`.
 2. Runs `public.ecr.aws/sam/build-python3.14` for `linux/amd64`.
@@ -132,7 +136,8 @@ script accepts only `generic-processor` or `gitlab-user`. For each target it:
 4. Copies `src/foundry_onboarding` into the artifact.
 5. Removes Python cache files from the copied source.
 6. Confirms that the source, Pydantic, and the native `pydantic-core` extension
-   are present.
+   are present. The GitLab and ingress assets also require `email-validator`;
+   the ingress asset explicitly checks for boto3 and botocore.
 7. Imports the target's configured handler inside the Python 3.14 container.
 
 The resulting directories are the roots of the Lambda zip assets:
@@ -142,9 +147,12 @@ build/
 ├── generic-processor/
 │   ├── foundry_onboarding/
 │   └── generic runtime dependencies
-└── gitlab-user/
+├── gitlab-user/
+│   ├── foundry_onboarding/
+│   └── GitLab runtime dependencies
+└── sqs-workflow-ingress/
     ├── foundry_onboarding/
-    └── GitLab runtime dependencies
+    └── SQS ingress runtime dependencies
 ```
 
 `build/` is generated locally and ignored by Git. Do not commit it.
@@ -165,9 +173,10 @@ This runs, in order:
 4. CDK synthesis for the selected environment.
 
 Infrastructure unit tests inject inline Lambda code, so the tests themselves do
-not need Docker or pre-existing packages. Normal application synthesis uses
-both directories under `build/`, so package before running the complete quality
-gate.
+not need Docker or pre-existing packages. Normal application synthesis
+currently uses the generic and GitLab directories under `build/`. It will also
+use the ingress directory after that function is defined in CDK. Package before
+running the complete quality gate.
 
 Before handing changes off for review, also run:
 
@@ -249,10 +258,12 @@ The default bootstrap stack provides resources used by CDK, including:
 - A CloudFormation execution role that creates the application resources.
 - An SSM parameter that records the bootstrap template version.
 
-For this project, `make package` creates `build/generic-processor` and
-`build/gitlab-user` locally. CDK packages both directories and uploads them to
-the bootstrap S3 bucket before CloudFormation creates or updates the Lambda
-functions.
+For this project, `make package` creates `build/generic-processor`,
+`build/gitlab-user`, and `build/sqs-workflow-ingress` locally. CDK currently
+packages the generic and GitLab directories and uploads them to the bootstrap
+S3 bucket before CloudFormation creates or updates the Lambda functions. The
+ingress directory will be added to that deployment flow when its Lambda is
+defined in CDK.
 
 Bootstrap status is specific to an account and Region. Check the development
 environment with:
@@ -567,7 +578,7 @@ validation step.
 | --- | --- |
 | `make install` | Install locked Node.js and Python development dependencies |
 | `make requirements` | Export hashed Lambda requirements from `uv.lock` |
-| `make package` | Export requirements, build both Lambda artifacts, and verify their imports |
+| `make package` | Export requirements, build all three Lambda artifacts, and verify their imports |
 | `make format` | Apply Ruff formatting and safe lint fixes |
 | `make lint` | Check formatting and lint rules |
 | `make typecheck` | Run strict mypy checks |
@@ -584,8 +595,8 @@ explicit action and is not part of `make check` or `make package`.
 
 ## Common failures
 
-- If synthesis reports that `build/generic-processor` or `build/gitlab-user`
-  does not exist, run `make package`.
+- If synthesis reports that a required directory under `build/` does not exist,
+  run `make package`.
 - If Docker cannot connect to its daemon, start Docker and verify that the
   current user can access it.
 - If packaging cannot find a compatible wheel, confirm the dependency publishes

@@ -40,8 +40,9 @@ The state machine checks the action, schema version, presence, and basic JSON
 types before invoking a task. Step Functions Choice rules do not fully validate
 UUID, email, username, length, or unknown-field constraints. Each Lambda
 therefore performs strict Pydantic validation after the workflow explicitly
-selects its allowed fields. The future SQS entry contract may add a dedicated
-public-input validation step once that schema is finalized.
+selects its allowed fields. The planned SQS ingress Lambda will validate the
+dedicated `SqsOnboardingMessage` contract before starting the workflow; its
+proposed external contract is documented in `docs/sqs-onboarding-contract.md`.
 
 ## Echo transformation
 

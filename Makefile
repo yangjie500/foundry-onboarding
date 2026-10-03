@@ -9,10 +9,12 @@ install:
 requirements:
 	uv export --locked --only-group lambda-generic --no-emit-project --format requirements.txt --output-file requirements/generic-processor.txt
 	uv export --locked --only-group lambda-gitlab --no-emit-project --format requirements.txt --output-file requirements/gitlab-user.txt
+	uv export --locked --only-group lambda-sqs-ingress --no-emit-project --format requirements.txt --output-file requirements/sqs-workflow-ingress.txt
 
 package: requirements
 	./scripts/build-lambda-asset.sh generic-processor
 	./scripts/build-lambda-asset.sh gitlab-user
+	./scripts/build-lambda-asset.sh sqs-workflow-ingress
 
 format:
 	uv run ruff format .

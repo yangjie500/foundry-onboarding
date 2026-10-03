@@ -15,6 +15,14 @@ is connected to Step Functions through the `onboard_user` route, but it has not
 been connected to SQS, deployed, or validated end to end. Slack remains planned
 and unimplemented.
 
+The SQS workflow-ingress application code is implemented with a dedicated
+external contract, runtime state-machine reference, Step Functions adapter,
+ingestion service, partial-batch Lambda handler, safe logging, fixtures, and
+unit tests. Its isolated dependency group, hashed requirements export, and
+guarded Lambda asset build target are defined. The asset still requires a
+Docker build verification. It is not yet defined in CDK, connected to a queue,
+granted IAM permissions, deployed, or validated end to end.
+
 The current generic processor and its example Parameter Store values should
 remain available through deployment validation. Its runtime loader already
 uses the shared AWS adapter foundation described below. Remove the generic
@@ -63,8 +71,12 @@ The intended onboarding sequence is:
 6. Create or reconcile the Slack user.
 7. Return a correlation-safe onboarding result.
 
-The exact SQS message schema and provider requirements are still open. Do not
-add guessed provider fields to shared contracts.
+A proposed version 1 SQS onboarding message is defined in
+`docs/sqs-onboarding-contract.md` and validated by the dedicated
+`SqsOnboardingMessage` contract. It intentionally supports only the current
+`onboard_user` fields and must still be approved by the external queue-owning
+team. Queue settings, ownership boundaries, and provider requirements remain
+open. Do not add guessed provider fields to shared contracts.
 
 ## Resource ownership
 
@@ -276,7 +288,8 @@ retry, reconciliation, or compensation policy.
 
 Resolve these before completing the end-to-end onboarding workflow:
 
-- Final SQS message schema and validation rules.
+- External-team approval of the proposed SQS message schema, validation rules,
+  and immutable request-ID requirement.
 - Required GitLab group and project-role assignment after account creation.
 - Required Slack provisioning API, account capabilities, and user fields.
 - Existing-user and duplicate-request behavior for Slack and the overall

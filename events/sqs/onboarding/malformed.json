@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "request_id": "not-a-uuid",
+  "action": "onboard_user",
+  "payload": {
+    "username": "invalid..username",
+    "name": "",
+    "email": "not-an-email",
+    "external": "false"
+  }
+}
