@@ -7,8 +7,10 @@ instance. CDK defines it as `foundry-<environment>-gitlab-user` with the handler
 `foundry_onboarding.handlers.gitlab_user.handler`.
 
 The function is independently invokable and is also called by the generic Step
-Functions workflow for the `onboard_user` action. It is not connected to an SQS
-queue yet.
+Functions workflow for the `onboard_user` action. It is not an SQS consumer;
+the development SQS event source invokes a dedicated ingress Lambda, which
+validates the message and starts the workflow before the workflow invokes this
+function.
 
 For a valid request, the service:
 

@@ -36,6 +36,7 @@ class ObservabilitySettings(SettingsModel):
 
 class SqsIngestionSettings(SettingsModel):
     provision_development_queue: bool
+    batch_size: int = Field(default=10, ge=1, le=10)
     visibility_timeout_seconds: int = Field(default=180, ge=1, le=43_200)
     message_retention_days: int = Field(default=4, ge=1, le=14)
     dead_letter_retention_days: int = Field(default=14, ge=1, le=14)

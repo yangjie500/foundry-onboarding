@@ -35,6 +35,7 @@ def _valid_config() -> dict[str, object]:
         "ingestion": {
             "sqs": {
                 "provision_development_queue": True,
+                "batch_size": 10,
                 "visibility_timeout_seconds": 180,
                 "message_retention_days": 4,
                 "dead_letter_retention_days": 14,
@@ -79,6 +80,7 @@ def test_load_environment_config(
     assert config.observability.log_retention_days == retention_days
     assert config.observability.workflow_log_level == workflow_log_level
     assert config.ingestion.sqs.provision_development_queue is (environment == "dev")
+    assert config.ingestion.sqs.batch_size == 10
     assert config.ingestion.sqs.visibility_timeout_seconds == 180
     assert config.ingestion.sqs.message_retention_days == 4
     assert config.ingestion.sqs.dead_letter_retention_days == 14
@@ -108,6 +110,7 @@ def test_load_environment_config(
         ("observability", "log_retention_days", 7),
         ("observability", "workflow_log_level", "DEBUG"),
         ("ingestion.sqs", "visibility_timeout_seconds", 43_201),
+        ("ingestion.sqs", "batch_size", 0),
         ("ingestion.sqs", "message_retention_days", 15),
         ("ingestion.sqs", "dead_letter_retention_days", 0),
         ("ingestion.sqs", "max_receive_count", 0),

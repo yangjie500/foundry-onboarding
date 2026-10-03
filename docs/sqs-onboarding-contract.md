@@ -102,10 +102,10 @@ behavior is not yet implemented because the external queue type remains open.
 
 The ingress application code has an isolated dependency group, hashed
 requirements export, and guarded Lambda asset build target. Its package has
-been built and import-verified with Docker. It is not yet defined as a CDK Lambda
-or connected to an SQS event source. The future event-source mapping must enable
-`ReportBatchItemFailures` for the returned record failures to affect SQS
-delivery.
+been built and import-verified with Docker. The development stack defines the
+ingress Lambda and an enabled SQS event-source mapping with a batch size of ten
+and `ReportBatchItemFailures`. The Lambda receives only the onboarding state
+machine ARN as integration configuration.
 
 ## External-team decisions still required
 
@@ -148,6 +148,19 @@ messages they contain. Staging and production configurations explicitly disable
 development queue provisioning; the external production queue remains owned by
 the other team.
 
-The stack exports the input and dead-letter queue URLs and ARNs. The ingress
-Lambda and SQS event-source mapping are not yet defined, so messages sent before
-that connection is implemented remain waiting in the input queue.
+The stack exports the input and dead-letter queue URLs and ARNs, plus the ingress
+Lambda function name. The enabled event-source mapping polls the input queue in
+batches of up to ten records. Successful records and already-started duplicate
+requests are acknowledged and removed. Failed records become visible for retry
+and move to the DLQ after the configured five failed receives.
+
+The ingress role can receive, inspect, change visibility, and delete messages
+only on the development input queue. It can start only the onboarding state
+machine. It has no DLQ, Parameter Store, Secrets Manager, GitLab, Slack, or
+direct provider-Lambda permission. A workflow failure after a successful
+`StartExecution` is owned by Step Functions and does not restore the SQS
+message.
+
+These resources still require deployment and end-to-end validation. Staging and
+production do not create an ingress Lambda or event-source mapping; external
+queue integration remains a separate step.

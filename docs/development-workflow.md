@@ -173,10 +173,9 @@ This runs, in order:
 4. CDK synthesis for the selected environment.
 
 Infrastructure unit tests inject inline Lambda code, so the tests themselves do
-not need Docker or pre-existing packages. Normal application synthesis
-currently uses the generic and GitLab directories under `build/`. It will also
-use the ingress directory after that function is defined in CDK. Package before
-running the complete quality gate.
+not need Docker or pre-existing packages. Normal development synthesis uses all
+three directories under `build/`. Package before running the complete quality
+gate.
 
 Before handing changes off for review, also run:
 
@@ -259,11 +258,11 @@ The default bootstrap stack provides resources used by CDK, including:
 - An SSM parameter that records the bootstrap template version.
 
 For this project, `make package` creates `build/generic-processor`,
-`build/gitlab-user`, and `build/sqs-workflow-ingress` locally. CDK currently
-packages the generic and GitLab directories and uploads them to the bootstrap
-S3 bucket before CloudFormation creates or updates the Lambda functions. The
-ingress directory will be added to that deployment flow when its Lambda is
-defined in CDK.
+`build/gitlab-user`, and `build/sqs-workflow-ingress` locally. Development CDK
+packages all three directories and uploads them to the bootstrap S3 bucket
+before CloudFormation creates or updates the Lambda functions. Staging and
+production currently use only the generic and GitLab assets because external
+SQS integration is not configured.
 
 Bootstrap status is specific to an account and Region. Check the development
 environment with:
@@ -503,10 +502,10 @@ policies. Approve only if the security changes match the reviewed diff. Keep
 the default rollback behavior; do not add `--no-rollback` to the initial
 deployment.
 
-During deployment, CDK uploads both Lambda assets to the bootstrap S3 bucket
-and uses CloudFormation to create the Lambda functions, Step Functions state
-machine, log groups, IAM roles and policies, tracing configuration, and stack
-outputs.
+During development deployment, CDK uploads all three Lambda assets to the
+bootstrap S3 bucket and uses CloudFormation to create the Lambda functions,
+SQS resources and event-source mapping, Step Functions state machine, log
+groups, IAM roles and policies, tracing configuration, and stack outputs.
 
 After deployment, confirm that CloudFormation completed successfully:
 
@@ -568,10 +567,11 @@ destructive action.
 
 Development deployment is complete when the change-set diff and local checks
 pass, `foundry-dev` reaches `CREATE_COMPLETE`, the Lambda reports `Active`, and
-the `GenericWorkflowArn`, `GitLabUserFunctionName`, and development onboarding
-queue outputs are available. The development queue currently has no event-source
-mapping, so sending a message before the ingress Lambda is connected leaves it
-waiting in the queue. Executing the workflow, sending a queue message, or
+the `GenericWorkflowArn`, `GitLabUserFunctionName`,
+`SqsWorkflowIngressFunctionName`, and development onboarding queue outputs are
+available. The development queue has an enabled ingress Lambda event-source
+mapping with partial batch failure reporting. Confirm that mapping is enabled
+before sending a message. Executing the workflow, sending a queue message, or
 directly invoking a Lambda is a separate validation step.
 
 ## Make targets

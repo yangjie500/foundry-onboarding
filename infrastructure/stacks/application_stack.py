@@ -13,18 +13,21 @@ from infrastructure.configuration import EnvironmentConfig
 from infrastructure.constructs import (
     DevelopmentOnboardingQueue,
     GenericWorkflow,
+    SqsWorkflowIngress,
     StandardPythonLambda,
 )
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _GENERIC_PROCESSOR_ASSET = _PROJECT_ROOT / "build" / "generic-processor"
 _GITLAB_USER_ASSET = _PROJECT_ROOT / "build" / "gitlab-user"
+_SQS_WORKFLOW_INGRESS_ASSET = _PROJECT_ROOT / "build" / "sqs-workflow-ingress"
 
 
 class ApplicationStack(Stack):
     generic_processor: lambda_.Function
     gitlab_user: lambda_.Function
     generic_workflow: sfn.StateMachine
+    sqs_workflow_ingress: lambda_.Function | None
     development_onboarding_queue: sqs.IQueue | None
     development_onboarding_dead_letter_queue: sqs.IQueue | None
 
@@ -36,6 +39,7 @@ class ApplicationStack(Stack):
         config: EnvironmentConfig,
         generic_processor_code: lambda_.Code | None = None,
         gitlab_user_code: lambda_.Code | None = None,
+        sqs_workflow_ingress_code: lambda_.Code | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -149,6 +153,7 @@ class ApplicationStack(Stack):
 
         self.development_onboarding_queue = None
         self.development_onboarding_dead_letter_queue = None
+        self.sqs_workflow_ingress = None
         if config.ingestion.sqs.provision_development_queue:
             development_queues = DevelopmentOnboardingQueue(
                 self,
@@ -157,6 +162,17 @@ class ApplicationStack(Stack):
             )
             self.development_onboarding_queue = development_queues.queue
             self.development_onboarding_dead_letter_queue = development_queues.dead_letter_queue
+
+            ingress = SqsWorkflowIngress(
+                self,
+                "SqsWorkflowIngress",
+                queue=development_queues.queue,
+                state_machine=self.generic_workflow,
+                code=sqs_workflow_ingress_code
+                or lambda_.Code.from_asset(str(_SQS_WORKFLOW_INGRESS_ASSET)),
+                config=config,
+            )
+            self.sqs_workflow_ingress = ingress.function
 
             CfnOutput(
                 self,
@@ -181,6 +197,12 @@ class ApplicationStack(Stack):
                 "DevelopmentOnboardingDeadLetterQueueArn",
                 value=development_queues.dead_letter_queue.queue_arn,
                 description="ARN of the development onboarding dead-letter queue",
+            )
+            CfnOutput(
+                self,
+                "SqsWorkflowIngressFunctionName",
+                value=ingress.function.function_name,
+                description="Name of the SQS workflow-ingress Lambda",
             )
 
         CfnOutput(

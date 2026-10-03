@@ -21,10 +21,13 @@ ingestion service, partial-batch Lambda handler, safe logging, fixtures, and
 unit tests. Its isolated dependency group, hashed requirements export, and
 guarded Lambda asset build target are defined and the Docker package build has
 been completed. CDK now defines an encrypted, TLS-only Standard SQS simulation
-queue and dead-letter queue in development only. The ingress Lambda is not yet
-defined in CDK, connected to that queue, granted IAM permissions, deployed, or
-validated end to end. Staging and production do not provision an SQS queue from
-this project.
+queue and dead-letter queue in development only. The development ingress Lambda
+is defined in CDK and connected with partial batch failure reporting. Its role
+can consume only the development input queue and start only the onboarding state
+machine; it cannot access the DLQ, provider configuration, or provider
+credentials. The resources have not yet been deployed or validated end to end.
+Staging and production do not provision an SQS queue, ingress Lambda, or event
+source from this project.
 
 The current generic processor and its example Parameter Store values should
 remain available through deployment validation. Its runtime loader already
@@ -129,6 +132,7 @@ class EnvironmentConfig(SettingsModel):
     lambda_function: LambdaSettings
     workflow: WorkflowSettings
     observability: ObservabilitySettings
+    ingestion: IngestionSettings
     integrations: IntegrationSettings
 ```
 

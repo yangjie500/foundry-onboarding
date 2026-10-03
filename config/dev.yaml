@@ -21,6 +21,7 @@ observability:
 ingestion:
   sqs:
     provision_development_queue: true
+    batch_size: 10
     visibility_timeout_seconds: 180
     message_retention_days: 4
     dead_letter_retention_days: 14
