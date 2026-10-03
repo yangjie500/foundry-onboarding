@@ -39,7 +39,7 @@ def _config(
             },
             "ingestion": {
                 "sqs": {
-                    "provision_development_queue": False,
+                    "mode": "disabled",
                 }
             },
             "parameters": {

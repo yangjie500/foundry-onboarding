@@ -26,8 +26,11 @@ is defined in CDK and connected with partial batch failure reporting. Its role
 can consume only the development input queue and start only the onboarding state
 machine; it cannot access the DLQ, provider configuration, or provider
 credentials. The resources have not yet been deployed or validated end to end.
-Staging and production do not provision an SQS queue, ingress Lambda, or event
-source from this project.
+The infrastructure also supports an externally managed Standard queue through a
+disabled-first, two-deployment handoff. Staging and production remain configured
+as `disabled`, so they do not currently create an ingress Lambda or event source.
+See [`external-sqs-handoff.md`](external-sqs-handoff.md) for the information and
+policy changes required from the external queue team.
 
 The current generic processor and its example Parameter Store values should
 remain available through deployment validation. Its runtime loader already

@@ -21,7 +21,7 @@ class DevelopmentOnboardingQueue(Construct):
         super().__init__(scope, construct_id)
 
         settings = config.ingestion.sqs
-        if config.environment != "dev" or not settings.provision_development_queue:
+        if config.environment != "dev" or settings.mode != "development":
             raise ValueError("Development onboarding queue requires development configuration")
 
         self.dead_letter_queue = sqs.Queue(

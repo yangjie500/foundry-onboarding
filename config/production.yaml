@@ -20,7 +20,7 @@ observability:
 
 ingestion:
   sqs:
-    provision_development_queue: false
+    mode: disabled
 
 parameters:
   generic_variable_name: /foundry/production/generic/example-variable

@@ -34,7 +34,7 @@ def _valid_config() -> dict[str, object]:
         },
         "ingestion": {
             "sqs": {
-                "provision_development_queue": True,
+                "mode": "development",
                 "batch_size": 10,
                 "visibility_timeout_seconds": 180,
                 "message_retention_days": 4,
@@ -79,7 +79,8 @@ def test_load_environment_config(
     assert config.workflow.retry.max_attempts == 3
     assert config.observability.log_retention_days == retention_days
     assert config.observability.workflow_log_level == workflow_log_level
-    assert config.ingestion.sqs.provision_development_queue is (environment == "dev")
+    expected_mode = "development" if environment == "dev" else "disabled"
+    assert config.ingestion.sqs.mode == expected_mode
     assert config.ingestion.sqs.batch_size == 10
     assert config.ingestion.sqs.visibility_timeout_seconds == 180
     assert config.ingestion.sqs.message_retention_days == 4
@@ -216,7 +217,7 @@ def test_environment_config_rejects_disabled_gitlab_tls_outside_development(
 
 
 @pytest.mark.parametrize("environment", ["staging", "production"])
-def test_environment_config_rejects_development_queue_outside_development(
+def test_environment_config_rejects_development_mode_outside_development(
     environment: str,
 ) -> None:
     raw_config = _valid_config()
@@ -229,7 +230,7 @@ def test_environment_config_rejects_development_queue_outside_development(
 
     with pytest.raises(
         ValidationError,
-        match="Development SQS queue can be provisioned only in development",
+        match="development SQS mode can be used only in development",
     ):
         EnvironmentConfig.model_validate(raw_config)
 
@@ -255,7 +256,7 @@ def test_environment_config_ignores_queue_timeout_when_queue_is_not_provisioned(
     assert isinstance(ingestion, dict)
     sqs = ingestion["sqs"]
     assert isinstance(sqs, dict)
-    sqs["provision_development_queue"] = False
+    sqs["mode"] = "disabled"
     sqs["visibility_timeout_seconds"] = 1
 
     config = EnvironmentConfig.model_validate(raw_config)
@@ -276,6 +277,131 @@ def test_environment_config_rejects_short_dead_letter_retention() -> None:
         ValidationError,
         match="SQS dead-letter retention must cover source retention",
     ):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_requires_settings_for_external_sqs_mode() -> None:
+    raw_config = _valid_config()
+    sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
+    assert isinstance(sqs, dict)
+    sqs["mode"] = "external"
+
+    with pytest.raises(ValidationError, match="external SQS mode requires external settings"):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_rejects_external_settings_in_disabled_mode() -> None:
+    raw_config = _valid_config()
+    sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
+    assert isinstance(sqs, dict)
+    sqs["mode"] = "disabled"
+    sqs["external"] = {
+        "queue_arn": "arn:aws:sqs:us-east-1:222222222222:onboarding",
+    }
+
+    with pytest.raises(ValidationError, match="external SQS settings require external mode"):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_accepts_external_sqs_outside_development() -> None:
+    raw_config = _valid_config()
+    raw_config["environment"] = "staging"
+    gitlab = raw_config["integrations"]["gitlab"]  # type: ignore[index]
+    assert isinstance(gitlab, dict)
+    gitlab["tls_verify"] = True
+    sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
+    assert isinstance(sqs, dict)
+    sqs["mode"] = "external"
+    sqs["external"] = {
+        "queue_arn": "arn:aws:sqs:us-east-1:222222222222:onboarding",
+        "kms_key_arn": (
+            "arn:aws:kms:us-east-1:222222222222:key/11111111-2222-3333-4444-555555555555"
+        ),
+        "event_source_mapping_enabled": False,
+    }
+
+    config = EnvironmentConfig.model_validate(raw_config)
+
+    assert config.ingestion.sqs.external is not None
+    assert config.ingestion.sqs.external.event_source_mapping_enabled is False
+
+
+@pytest.mark.parametrize(
+    ("key_arn", "expected_error"),
+    [
+        (
+            "arn:aws:kms:us-east-1:222222222222:alias/aws/sqs",
+            "external SQS KMS key ARN must identify a customer managed key",
+        ),
+        (
+            "arn:aws:kms:us-east-1:333333333333:key/11111111-2222-3333-4444-555555555555",
+            "external SQS queue and KMS key must share partition, region, and account",
+        ),
+    ],
+)
+def test_environment_config_rejects_invalid_external_kms_key(
+    key_arn: str,
+    expected_error: str,
+) -> None:
+    raw_config = _valid_config()
+    raw_config["environment"] = "staging"
+    gitlab = raw_config["integrations"]["gitlab"]  # type: ignore[index]
+    assert isinstance(gitlab, dict)
+    gitlab["tls_verify"] = True
+    sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
+    assert isinstance(sqs, dict)
+    sqs["mode"] = "external"
+    sqs["external"] = {
+        "queue_arn": "arn:aws:sqs:us-east-1:222222222222:onboarding",
+        "kms_key_arn": key_arn,
+    }
+
+    with pytest.raises(ValidationError, match=expected_error):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+@pytest.mark.parametrize(
+    ("queue_arn", "expected_error"),
+    [
+        ("not-an-arn", "external SQS queue ARN is invalid"),
+        (
+            "arn:aws:sqs:us-east-1:222222222222:onboarding.fifo",
+            "external SQS queue must be a Standard queue",
+        ),
+        (
+            "arn:aws:sqs:us-west-2:222222222222:onboarding",
+            "external SQS queue must be in the configured AWS Region",
+        ),
+    ],
+)
+def test_environment_config_rejects_invalid_external_queue(
+    queue_arn: str,
+    expected_error: str,
+) -> None:
+    raw_config = _valid_config()
+    raw_config["environment"] = "staging"
+    gitlab = raw_config["integrations"]["gitlab"]  # type: ignore[index]
+    assert isinstance(gitlab, dict)
+    gitlab["tls_verify"] = True
+    sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
+    assert isinstance(sqs, dict)
+    sqs["mode"] = "external"
+    sqs["external"] = {"queue_arn": queue_arn}
+
+    with pytest.raises(ValidationError, match=expected_error):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_rejects_external_sqs_in_development() -> None:
+    raw_config = _valid_config()
+    sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
+    assert isinstance(sqs, dict)
+    sqs["mode"] = "external"
+    sqs["external"] = {
+        "queue_arn": "arn:aws:sqs:us-east-1:222222222222:onboarding",
+    }
+
+    with pytest.raises(ValidationError, match="external SQS mode cannot be used in development"):
         EnvironmentConfig.model_validate(raw_config)
 
 
@@ -308,7 +434,7 @@ def test_loaded_environment_must_match_requested_environment(
     assert isinstance(ingestion, dict)
     sqs = ingestion["sqs"]
     assert isinstance(sqs, dict)
-    sqs["provision_development_queue"] = False
+    sqs["mode"] = "disabled"
 
     def fake_safe_load(_stream: object) -> Mapping[str, object]:
         return raw_config

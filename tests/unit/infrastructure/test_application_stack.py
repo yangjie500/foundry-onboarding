@@ -14,6 +14,9 @@ def _template(
     environment: EnvironmentName = "dev",
     *,
     ca_bundle_parameter_name: str | None = None,
+    external_queue_arn: str | None = None,
+    external_kms_key_arn: str | None = None,
+    event_source_mapping_enabled: bool = False,
 ) -> Template:
     app = cdk.App()
     config = load_environment_config(environment)
@@ -23,6 +26,17 @@ def _template(
         gitlab = cast(dict[str, Any], integrations["gitlab"])
         gitlab["ca_bundle_parameter_name"] = ca_bundle_parameter_name
         gitlab["tls_verify"] = True
+        config = config.model_validate(raw_config)
+    if external_queue_arn is not None:
+        raw_config = config.model_dump()
+        ingestion = cast(dict[str, Any], raw_config["ingestion"])
+        sqs_config = cast(dict[str, Any], ingestion["sqs"])
+        sqs_config["mode"] = "external"
+        sqs_config["external"] = {
+            "queue_arn": external_queue_arn,
+            "kms_key_arn": external_kms_key_arn,
+            "event_source_mapping_enabled": event_source_mapping_enabled,
+        }
         config = config.model_validate(raw_config)
     stack = ApplicationStack(
         app,
@@ -503,6 +517,83 @@ def test_application_stack_does_not_provision_queues_outside_development(
     template.resource_count_is("AWS::SQS::QueuePolicy", 0)
     template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
     template.resource_count_is("AWS::Lambda::Function", 2)
+
+
+def test_external_queue_first_deployment_creates_permissions_without_mapping() -> None:
+    queue_arn = "arn:aws:sqs:us-east-1:222222222222:external-onboarding"
+    key_arn = "arn:aws:kms:us-east-1:222222222222:key/11111111-2222-3333-4444-555555555555"
+    template = _template(
+        "staging",
+        external_queue_arn=queue_arn,
+        external_kms_key_arn=key_arn,
+    )
+
+    template.resource_count_is("AWS::SQS::Queue", 0)
+    template.resource_count_is("AWS::SQS::QueuePolicy", 0)
+    template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
+    template.resource_count_is("AWS::Lambda::Function", 3)
+    ingress_role_logical_id = _function_role_logical_id(
+        template,
+        "foundry-staging-sqs-workflow-ingress",
+    )
+    policies = cast(dict[str, dict[str, Any]], template.find_resources("AWS::IAM::Policy"))
+    ingress_policy = next(
+        policy
+        for policy in policies.values()
+        if {"Ref": ingress_role_logical_id} in policy["Properties"]["Roles"]
+    )
+    statements = ingress_policy["Properties"]["PolicyDocument"]["Statement"]
+    queue_access = next(
+        statement
+        for statement in statements
+        if isinstance(statement["Action"], list) and "sqs:ReceiveMessage" in statement["Action"]
+    )
+    assert queue_access["Resource"] == queue_arn
+    assert next(statement for statement in statements if statement["Action"] == "kms:Decrypt") == {
+        "Action": "kms:Decrypt",
+        "Effect": "Allow",
+        "Resource": key_arn,
+    }
+    template.has_output(
+        "ExternalOnboardingQueueArn",
+        {
+            "Description": "ARN of the externally managed onboarding queue",
+            "Value": queue_arn,
+        },
+    )
+    template.has_output(
+        "SqsWorkflowIngressRoleArn",
+        {
+            "Description": "Role ARN that an external SQS queue and KMS key must trust",
+            "Value": {"Fn::GetAtt": [ingress_role_logical_id, "Arn"]},
+        },
+    )
+
+
+def test_external_queue_mapping_can_be_enabled_after_handoff() -> None:
+    queue_arn = "arn:aws:sqs:us-east-1:222222222222:external-onboarding"
+    template = _template(
+        "production",
+        external_queue_arn=queue_arn,
+        event_source_mapping_enabled=True,
+    )
+
+    ingress_logical_id = _function_logical_id(
+        template,
+        "foundry-production-sqs-workflow-ingress",
+    )
+    template.has_resource_properties(
+        "AWS::Lambda::EventSourceMapping",
+        {
+            "BatchSize": 10,
+            "Enabled": True,
+            "EventSourceArn": queue_arn,
+            "FunctionName": {"Ref": ingress_logical_id},
+            "FunctionResponseTypes": ["ReportBatchItemFailures"],
+        },
+    )
+    template.resource_count_is("AWS::SQS::Queue", 0)
+    template.resource_count_is("AWS::SQS::QueuePolicy", 0)
 
 
 def test_workflow_definition_and_policy_reference_both_task_functions() -> None:

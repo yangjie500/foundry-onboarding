@@ -1,3 +1,4 @@
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_lambda_event_sources as lambda_event_sources
 from aws_cdk import aws_sqs as sqs
@@ -22,6 +23,8 @@ class SqsWorkflowIngress(Construct):
         state_machine: sfn.IStateMachine,
         code: lambda_.Code,
         config: EnvironmentConfig,
+        connect_event_source: bool,
+        kms_key_arn: str | None = None,
     ) -> None:
         super().__init__(scope, construct_id)
 
@@ -41,11 +44,18 @@ class SqsWorkflowIngress(Construct):
         )
 
         state_machine.grant_start_execution(self.function)
-        self.function.add_event_source(
-            lambda_event_sources.SqsEventSource(
-                queue,
-                batch_size=config.ingestion.sqs.batch_size,
-                enabled=True,
-                report_batch_item_failures=True,
+        if kms_key_arn is not None:
+            self.function.add_to_role_policy(
+                iam.PolicyStatement(actions=["kms:Decrypt"], resources=[kms_key_arn])
             )
-        )
+        if connect_event_source:
+            self.function.add_event_source(
+                lambda_event_sources.SqsEventSource(
+                    queue,
+                    batch_size=config.ingestion.sqs.batch_size,
+                    enabled=True,
+                    report_batch_item_failures=True,
+                )
+            )
+        else:
+            queue.grant_consume_messages(self.function)

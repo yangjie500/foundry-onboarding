@@ -154,7 +154,12 @@ class ApplicationStack(Stack):
         self.development_onboarding_queue = None
         self.development_onboarding_dead_letter_queue = None
         self.sqs_workflow_ingress = None
-        if config.ingestion.sqs.provision_development_queue:
+        ingestion_settings = config.ingestion.sqs
+        ingress_queue: sqs.IQueue | None = None
+        connect_event_source = False
+        kms_key_arn: str | None = None
+
+        if ingestion_settings.mode == "development":
             development_queues = DevelopmentOnboardingQueue(
                 self,
                 "DevelopmentOnboardingQueue",
@@ -162,17 +167,8 @@ class ApplicationStack(Stack):
             )
             self.development_onboarding_queue = development_queues.queue
             self.development_onboarding_dead_letter_queue = development_queues.dead_letter_queue
-
-            ingress = SqsWorkflowIngress(
-                self,
-                "SqsWorkflowIngress",
-                queue=development_queues.queue,
-                state_machine=self.generic_workflow,
-                code=sqs_workflow_ingress_code
-                or lambda_.Code.from_asset(str(_SQS_WORKFLOW_INGRESS_ASSET)),
-                config=config,
-            )
-            self.sqs_workflow_ingress = ingress.function
+            ingress_queue = development_queues.queue
+            connect_event_source = True
 
             CfnOutput(
                 self,
@@ -198,11 +194,52 @@ class ApplicationStack(Stack):
                 value=development_queues.dead_letter_queue.queue_arn,
                 description="ARN of the development onboarding dead-letter queue",
             )
+        elif ingestion_settings.mode == "external":
+            external_settings = ingestion_settings.external
+            if external_settings is None:  # Defensive; configuration validation requires this.
+                raise ValueError("external SQS settings are required")
+            ingress_queue = sqs.Queue.from_queue_arn(
+                self,
+                "ExternalOnboardingQueue",
+                external_settings.queue_arn,
+            )
+            connect_event_source = external_settings.event_source_mapping_enabled
+            kms_key_arn = external_settings.kms_key_arn
+            CfnOutput(
+                self,
+                "ExternalOnboardingQueueArn",
+                value=ingress_queue.queue_arn,
+                description="ARN of the externally managed onboarding queue",
+            )
+
+        if ingress_queue is not None:
+            ingress = SqsWorkflowIngress(
+                self,
+                "SqsWorkflowIngress",
+                queue=ingress_queue,
+                state_machine=self.generic_workflow,
+                code=sqs_workflow_ingress_code
+                or lambda_.Code.from_asset(str(_SQS_WORKFLOW_INGRESS_ASSET)),
+                config=config,
+                connect_event_source=connect_event_source,
+                kms_key_arn=kms_key_arn,
+            )
+            self.sqs_workflow_ingress = ingress.function
+            ingress_role = ingress.function.role
+            if ingress_role is None:  # Defensive; StandardPythonLambda creates the role.
+                raise RuntimeError("SQS workflow-ingress Lambda requires an execution role")
+
             CfnOutput(
                 self,
                 "SqsWorkflowIngressFunctionName",
                 value=ingress.function.function_name,
                 description="Name of the SQS workflow-ingress Lambda",
+            )
+            CfnOutput(
+                self,
+                "SqsWorkflowIngressRoleArn",
+                value=ingress_role.role_arn,
+                description="Role ARN that an external SQS queue and KMS key must trust",
             )
 
         CfnOutput(

@@ -35,6 +35,8 @@ The GitLab user Lambda and its `onboard_user` workflow route are documented in
 [docs/gitlab-user-lambda.md](docs/gitlab-user-lambda.md).
 The proposed externally owned SQS integration contract is documented in
 [docs/sqs-onboarding-contract.md](docs/sqs-onboarding-contract.md).
+The external queue activation process and cross-team inputs are documented in
+[docs/external-sqs-handoff.md](docs/external-sqs-handoff.md).
 
 Representative workflow-start events are under `events/workflows/`. Lambda
 invocation and expected-output fixtures are under `events/functions/`. Proposed
