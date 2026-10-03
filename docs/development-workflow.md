@@ -568,9 +568,11 @@ destructive action.
 
 Development deployment is complete when the change-set diff and local checks
 pass, `foundry-dev` reaches `CREATE_COMPLETE`, the Lambda reports `Active`, and
-the `GenericWorkflowArn` and `GitLabUserFunctionName` outputs are available.
-Executing the workflow or directly invoking the GitLab function is a separate
-validation step.
+the `GenericWorkflowArn`, `GitLabUserFunctionName`, and development onboarding
+queue outputs are available. The development queue currently has no event-source
+mapping, so sending a message before the ingress Lambda is connected leaves it
+waiting in the queue. Executing the workflow, sending a queue message, or
+directly invoking a Lambda is a separate validation step.
 
 ## Make targets
 

@@ -78,6 +78,15 @@ def _function_logical_id(template: Template, function_name: str) -> str:
     return next(iter(resources))
 
 
+def _queue_logical_id(template: Template, queue_name: str) -> str:
+    resources = template.find_resources(
+        "AWS::SQS::Queue",
+        {"Properties": {"QueueName": queue_name}},
+    )
+    assert len(resources) == 1
+    return next(iter(resources))
+
+
 def test_application_stack_creates_expected_resource_graph() -> None:
     template = _template()
 
@@ -86,6 +95,9 @@ def test_application_stack_creates_expected_resource_graph() -> None:
     template.resource_count_is("AWS::Logs::LogGroup", 3)
     template.resource_count_is("AWS::IAM::Role", 3)
     template.resource_count_is("AWS::SSM::Parameter", 1)
+    template.resource_count_is("AWS::SQS::Queue", 2)
+    template.resource_count_is("AWS::SQS::QueuePolicy", 2)
+    template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
 
 
 @pytest.mark.parametrize(
@@ -271,6 +283,79 @@ def test_application_stack_configures_optional_gitlab_ca_bundle_access() -> None
     assert len(json.loads(resources)) == 3
 
 
+def test_application_stack_configures_development_onboarding_queues() -> None:
+    template = _template()
+    dead_letter_queue_logical_id = _queue_logical_id(
+        template,
+        "foundry-dev-onboarding-dlq",
+    )
+
+    template.has_resource_properties(
+        "AWS::SQS::Queue",
+        {
+            "QueueName": "foundry-dev-onboarding",
+            "MessageRetentionPeriod": 345600,
+            "SqsManagedSseEnabled": True,
+            "VisibilityTimeout": 180,
+            "RedrivePolicy": {
+                "deadLetterTargetArn": {
+                    "Fn::GetAtt": [dead_letter_queue_logical_id, "Arn"],
+                },
+                "maxReceiveCount": 5,
+            },
+        },
+    )
+    template.has_resource_properties(
+        "AWS::SQS::Queue",
+        {
+            "QueueName": "foundry-dev-onboarding-dlq",
+            "MessageRetentionPeriod": 1209600,
+            "SqsManagedSseEnabled": True,
+        },
+    )
+
+    queues = cast(
+        dict[str, dict[str, Any]],
+        template.find_resources("AWS::SQS::Queue"),
+    )
+    assert len(queues) == 2
+    for queue in queues.values():
+        assert queue["DeletionPolicy"] == "Delete"
+        assert queue["UpdateReplacePolicy"] == "Delete"
+
+    queue_policies = cast(
+        dict[str, dict[str, Any]],
+        template.find_resources("AWS::SQS::QueuePolicy"),
+    )
+    assert len(queue_policies) == 2
+    for queue_policy in queue_policies.values():
+        statements = queue_policy["Properties"]["PolicyDocument"]["Statement"]
+        tls_denials = [
+            statement
+            for statement in statements
+            if statement["Effect"] == "Deny"
+            and statement["Action"] == "sqs:*"
+            and statement["Condition"] == {"Bool": {"aws:SecureTransport": "false"}}
+        ]
+        assert len(tls_denials) == 1
+        assert tls_denials[0]["Principal"] == {"AWS": "*"}
+
+    template_json = json.dumps(template.to_json())
+    assert '"Action": "sqs:SendMessage"' not in template_json
+    assert "foundry-dev-sqs-workflow-ingress" not in template_json
+
+
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_application_stack_does_not_provision_queues_outside_development(
+    environment: EnvironmentName,
+) -> None:
+    template = _template(environment)
+
+    template.resource_count_is("AWS::SQS::Queue", 0)
+    template.resource_count_is("AWS::SQS::QueuePolicy", 0)
+    template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
+
+
 def test_workflow_definition_and_policy_reference_both_task_functions() -> None:
     template = _template()
     processor_logical_id = _function_logical_id(
@@ -345,6 +430,11 @@ def test_stack_outputs_reference_created_resources() -> None:
         "foundry-dev-gitlab-user",
     )
     workflow_logical_id = _logical_id(template, "AWS::StepFunctions::StateMachine")
+    queue_logical_id = _queue_logical_id(template, "foundry-dev-onboarding")
+    dead_letter_queue_logical_id = _queue_logical_id(
+        template,
+        "foundry-dev-onboarding-dlq",
+    )
 
     template.has_output(
         "GenericProcessorName",
@@ -365,5 +455,33 @@ def test_stack_outputs_reference_created_resources() -> None:
         {
             "Description": "Name of the GitLab user Lambda",
             "Value": {"Ref": gitlab_user_logical_id},
+        },
+    )
+    template.has_output(
+        "DevelopmentOnboardingQueueUrl",
+        {
+            "Description": "URL of the development onboarding simulation queue",
+            "Value": {"Ref": queue_logical_id},
+        },
+    )
+    template.has_output(
+        "DevelopmentOnboardingQueueArn",
+        {
+            "Description": "ARN of the development onboarding simulation queue",
+            "Value": {"Fn::GetAtt": [queue_logical_id, "Arn"]},
+        },
+    )
+    template.has_output(
+        "DevelopmentOnboardingDeadLetterQueueUrl",
+        {
+            "Description": "URL of the development onboarding dead-letter queue",
+            "Value": {"Ref": dead_letter_queue_logical_id},
+        },
+    )
+    template.has_output(
+        "DevelopmentOnboardingDeadLetterQueueArn",
+        {
+            "Description": "ARN of the development onboarding dead-letter queue",
+            "Value": {"Fn::GetAtt": [dead_letter_queue_logical_id, "Arn"]},
         },
     )

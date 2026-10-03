@@ -4,12 +4,17 @@ from typing import Any
 from aws_cdk import CfnOutput, RemovalPolicy, Stack
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
+from aws_cdk import aws_sqs as sqs
 from aws_cdk import aws_ssm as ssm
 from aws_cdk import aws_stepfunctions as sfn
 from constructs import Construct
 
 from infrastructure.configuration import EnvironmentConfig
-from infrastructure.constructs import GenericWorkflow, StandardPythonLambda
+from infrastructure.constructs import (
+    DevelopmentOnboardingQueue,
+    GenericWorkflow,
+    StandardPythonLambda,
+)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _GENERIC_PROCESSOR_ASSET = _PROJECT_ROOT / "build" / "generic-processor"
@@ -20,6 +25,8 @@ class ApplicationStack(Stack):
     generic_processor: lambda_.Function
     gitlab_user: lambda_.Function
     generic_workflow: sfn.StateMachine
+    development_onboarding_queue: sqs.IQueue | None
+    development_onboarding_dead_letter_queue: sqs.IQueue | None
 
     def __init__(
         self,
@@ -139,6 +146,42 @@ class ApplicationStack(Stack):
             config=config,
         )
         self.generic_workflow = workflow.state_machine
+
+        self.development_onboarding_queue = None
+        self.development_onboarding_dead_letter_queue = None
+        if config.ingestion.sqs.provision_development_queue:
+            development_queues = DevelopmentOnboardingQueue(
+                self,
+                "DevelopmentOnboardingQueue",
+                config=config,
+            )
+            self.development_onboarding_queue = development_queues.queue
+            self.development_onboarding_dead_letter_queue = development_queues.dead_letter_queue
+
+            CfnOutput(
+                self,
+                "DevelopmentOnboardingQueueUrl",
+                value=development_queues.queue.queue_url,
+                description="URL of the development onboarding simulation queue",
+            )
+            CfnOutput(
+                self,
+                "DevelopmentOnboardingQueueArn",
+                value=development_queues.queue.queue_arn,
+                description="ARN of the development onboarding simulation queue",
+            )
+            CfnOutput(
+                self,
+                "DevelopmentOnboardingDeadLetterQueueUrl",
+                value=development_queues.dead_letter_queue.queue_url,
+                description="URL of the development onboarding dead-letter queue",
+            )
+            CfnOutput(
+                self,
+                "DevelopmentOnboardingDeadLetterQueueArn",
+                value=development_queues.dead_letter_queue.queue_arn,
+                description="ARN of the development onboarding dead-letter queue",
+            )
 
         CfnOutput(
             self,

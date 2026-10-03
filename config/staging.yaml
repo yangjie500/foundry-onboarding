@@ -18,6 +18,10 @@ observability:
   enable_tracing: true
   workflow_log_level: ALL
 
+ingestion:
+  sqs:
+    provision_development_queue: false
+
 parameters:
   generic_variable_name: /foundry/staging/generic/example-variable
   generic_variable_value: hello-from-staging-parameter-store

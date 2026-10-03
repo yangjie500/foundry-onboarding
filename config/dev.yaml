@@ -18,6 +18,14 @@ observability:
   enable_tracing: true
   workflow_log_level: ALL
 
+ingestion:
+  sqs:
+    provision_development_queue: true
+    visibility_timeout_seconds: 180
+    message_retention_days: 4
+    dead_letter_retention_days: 14
+    max_receive_count: 5
+
 parameters:
   generic_variable_name: /foundry/dev/generic/example-variable
   generic_variable_value: hello-from-dev-parameter-store

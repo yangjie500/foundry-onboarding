@@ -37,6 +37,11 @@ def _config(
                 "enable_tracing": enable_tracing,
                 "workflow_log_level": workflow_log_level,
             },
+            "ingestion": {
+                "sqs": {
+                    "provision_development_queue": False,
+                }
+            },
             "parameters": {
                 "generic_variable_name": f"/foundry/{environment}/generic/example-variable",
                 "generic_variable_value": "example-value",

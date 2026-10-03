@@ -34,6 +34,25 @@ class ObservabilitySettings(SettingsModel):
     workflow_log_level: WorkflowLogLevel
 
 
+class SqsIngestionSettings(SettingsModel):
+    provision_development_queue: bool
+    visibility_timeout_seconds: int = Field(default=180, ge=1, le=43_200)
+    message_retention_days: int = Field(default=4, ge=1, le=14)
+    dead_letter_retention_days: int = Field(default=14, ge=1, le=14)
+    max_receive_count: int = Field(default=5, ge=1, le=1_000)
+
+    @model_validator(mode="after")
+    def dead_letter_retention_must_cover_source_retention(self) -> Self:
+        if self.dead_letter_retention_days < self.message_retention_days:
+            raise ValueError("SQS dead-letter retention must cover source retention")
+
+        return self
+
+
+class IngestionSettings(SettingsModel):
+    sqs: SqsIngestionSettings
+
+
 class ParameterSettings(SettingsModel):
     generic_variable_name: str = Field(
         min_length=2,
@@ -102,13 +121,22 @@ class EnvironmentConfig(SettingsModel):
     lambda_function: LambdaSettings
     workflow: WorkflowSettings
     observability: ObservabilitySettings
+    ingestion: IngestionSettings
     parameters: ParameterSettings
     integrations: IntegrationSettings
 
     @model_validator(mode="after")
-    def insecure_gitlab_tls_is_development_only(self) -> Self:
+    def validate_environment_settings(self) -> Self:
         if self.environment != "dev" and not self.integrations.gitlab.tls_verify:
             raise ValueError("GitLab TLS verification can be disabled only in development")
+        if self.environment != "dev" and self.ingestion.sqs.provision_development_queue:
+            raise ValueError("Development SQS queue can be provisioned only in development")
+        minimum_visibility_timeout = self.lambda_function.timeout_seconds * 6
+        if (
+            self.ingestion.sqs.provision_development_queue
+            and self.ingestion.sqs.visibility_timeout_seconds < minimum_visibility_timeout
+        ):
+            raise ValueError("SQS visibility timeout must be at least six times Lambda timeout")
 
         return self
 

@@ -32,6 +32,15 @@ def _valid_config() -> dict[str, object]:
             "enable_tracing": True,
             "workflow_log_level": "ALL",
         },
+        "ingestion": {
+            "sqs": {
+                "provision_development_queue": True,
+                "visibility_timeout_seconds": 180,
+                "message_retention_days": 4,
+                "dead_letter_retention_days": 14,
+                "max_receive_count": 5,
+            }
+        },
         "parameters": {
             "generic_variable_name": "/foundry/dev/generic/example-variable",
             "generic_variable_value": "hello-from-dev-parameter-store",
@@ -69,6 +78,11 @@ def test_load_environment_config(
     assert config.workflow.retry.max_attempts == 3
     assert config.observability.log_retention_days == retention_days
     assert config.observability.workflow_log_level == workflow_log_level
+    assert config.ingestion.sqs.provision_development_queue is (environment == "dev")
+    assert config.ingestion.sqs.visibility_timeout_seconds == 180
+    assert config.ingestion.sqs.message_retention_days == 4
+    assert config.ingestion.sqs.dead_letter_retention_days == 14
+    assert config.ingestion.sqs.max_receive_count == 5
     assert config.parameters.generic_variable_name == (
         f"/foundry/{environment}/generic/example-variable"
     )
@@ -93,6 +107,10 @@ def test_load_environment_config(
         ("workflow", "timeout_seconds", 0),
         ("observability", "log_retention_days", 7),
         ("observability", "workflow_log_level", "DEBUG"),
+        ("ingestion.sqs", "visibility_timeout_seconds", 43_201),
+        ("ingestion.sqs", "message_retention_days", 15),
+        ("ingestion.sqs", "dead_letter_retention_days", 0),
+        ("ingestion.sqs", "max_receive_count", 0),
         ("parameters", "generic_variable_name", "missing-leading-slash"),
         ("parameters", "generic_variable_value", ""),
         ("parameters", "generic_secret_name", "missing-leading-slash"),
@@ -194,6 +212,70 @@ def test_environment_config_rejects_disabled_gitlab_tls_outside_development(
         EnvironmentConfig.model_validate(raw_config)
 
 
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_environment_config_rejects_development_queue_outside_development(
+    environment: str,
+) -> None:
+    raw_config = _valid_config()
+    raw_config["environment"] = environment
+    integrations = raw_config["integrations"]
+    assert isinstance(integrations, dict)
+    gitlab = integrations["gitlab"]
+    assert isinstance(gitlab, dict)
+    gitlab["tls_verify"] = True
+
+    with pytest.raises(
+        ValidationError,
+        match="Development SQS queue can be provisioned only in development",
+    ):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_rejects_short_sqs_visibility_timeout() -> None:
+    raw_config = _valid_config()
+    ingestion = raw_config["ingestion"]
+    assert isinstance(ingestion, dict)
+    sqs = ingestion["sqs"]
+    assert isinstance(sqs, dict)
+    sqs["visibility_timeout_seconds"] = 179
+
+    with pytest.raises(
+        ValidationError,
+        match="SQS visibility timeout must be at least six times Lambda timeout",
+    ):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_ignores_queue_timeout_when_queue_is_not_provisioned() -> None:
+    raw_config = _valid_config()
+    ingestion = raw_config["ingestion"]
+    assert isinstance(ingestion, dict)
+    sqs = ingestion["sqs"]
+    assert isinstance(sqs, dict)
+    sqs["provision_development_queue"] = False
+    sqs["visibility_timeout_seconds"] = 1
+
+    config = EnvironmentConfig.model_validate(raw_config)
+
+    assert config.ingestion.sqs.visibility_timeout_seconds == 1
+
+
+def test_environment_config_rejects_short_dead_letter_retention() -> None:
+    raw_config = _valid_config()
+    ingestion = raw_config["ingestion"]
+    assert isinstance(ingestion, dict)
+    sqs = ingestion["sqs"]
+    assert isinstance(sqs, dict)
+    sqs["message_retention_days"] = 10
+    sqs["dead_letter_retention_days"] = 9
+
+    with pytest.raises(
+        ValidationError,
+        match="SQS dead-letter retention must cover source retention",
+    ):
+        EnvironmentConfig.model_validate(raw_config)
+
+
 def test_environment_config_rejects_unknown_fields() -> None:
     raw_config = _valid_config()
     raw_config["secret"] = "must not be accepted"
@@ -219,6 +301,11 @@ def test_loaded_environment_must_match_requested_environment(
     gitlab = integrations["gitlab"]
     assert isinstance(gitlab, dict)
     gitlab["tls_verify"] = True
+    ingestion = raw_config["ingestion"]
+    assert isinstance(ingestion, dict)
+    sqs = ingestion["sqs"]
+    assert isinstance(sqs, dict)
+    sqs["provision_development_queue"] = False
 
     def fake_safe_load(_stream: object) -> Mapping[str, object]:
         return raw_config

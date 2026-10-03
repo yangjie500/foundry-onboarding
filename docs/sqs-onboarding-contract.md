@@ -101,11 +101,11 @@ records in the same Standard queue batch to be delivered again. FIFO ordering
 behavior is not yet implemented because the external queue type remains open.
 
 The ingress application code has an isolated dependency group, hashed
-requirements export, and guarded Lambda asset build target. Its package must
-still be built and import-verified with Docker. It is not yet defined as a CDK
-Lambda or connected to an SQS event source. The future event-source mapping
-must enable `ReportBatchItemFailures` for the returned record failures to affect
-SQS delivery.
+requirements export, and guarded Lambda asset build target. Its package has
+been built and import-verified with Docker. It is not yet defined as a CDK Lambda
+or connected to an SQS event source. The future event-source mapping must enable
+`ReportBatchItemFailures` for the returned record failures to affect SQS
+delivery.
 
 ## External-team decisions still required
 
@@ -126,3 +126,28 @@ Before production integration, confirm:
 
 Development defaults must simulate these decisions once they are known. This
 project must not provision or replace the production queue.
+
+## Development simulation infrastructure
+
+The development stack provisions a Standard input queue and dead-letter queue
+owned by this project:
+
+```text
+foundry-dev-onboarding
+foundry-dev-onboarding-dlq
+```
+
+Both queues use SQS-managed server-side encryption and resource policies that
+deny non-TLS requests. The input queue has a 180-second visibility timeout,
+four-day retention, and a redrive policy that moves a message to the DLQ after
+five failed receives. The DLQ retains messages for fourteen days.
+
+The queues use a destroy removal policy because they contain development
+simulation data. Destroying the development stack deletes both queues and any
+messages they contain. Staging and production configurations explicitly disable
+development queue provisioning; the external production queue remains owned by
+the other team.
+
+The stack exports the input and dead-letter queue URLs and ARNs. The ingress
+Lambda and SQS event-source mapping are not yet defined, so messages sent before
+that connection is implemented remain waiting in the input queue.

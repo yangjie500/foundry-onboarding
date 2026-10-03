@@ -19,9 +19,12 @@ The SQS workflow-ingress application code is implemented with a dedicated
 external contract, runtime state-machine reference, Step Functions adapter,
 ingestion service, partial-batch Lambda handler, safe logging, fixtures, and
 unit tests. Its isolated dependency group, hashed requirements export, and
-guarded Lambda asset build target are defined. The asset still requires a
-Docker build verification. It is not yet defined in CDK, connected to a queue,
-granted IAM permissions, deployed, or validated end to end.
+guarded Lambda asset build target are defined and the Docker package build has
+been completed. CDK now defines an encrypted, TLS-only Standard SQS simulation
+queue and dead-letter queue in development only. The ingress Lambda is not yet
+defined in CDK, connected to that queue, granted IAM permissions, deployed, or
+validated end to end. Staging and production do not provision an SQS queue from
+this project.
 
 The current generic processor and its example Parameter Store values should
 remain available through deployment validation. Its runtime loader already
