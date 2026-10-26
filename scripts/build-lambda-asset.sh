@@ -4,7 +4,7 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPOSITORY_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-readonly BUILD_IMAGE="public.ecr.aws/sam/build-python3.14"
+readonly BUILD_IMAGE="${LAMBDA_BUILD_IMAGE:-public.ecr.aws/sam/build-python3.14}"
 
 case "${1:-}" in
     generic-processor)

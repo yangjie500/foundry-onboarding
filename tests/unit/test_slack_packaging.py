@@ -32,6 +32,7 @@ def test_slack_package_target_is_guarded_and_imports_the_handler() -> None:
     assert "./scripts/build-lambda-asset.sh slack-user" in makefile
     assert '"${REPOSITORY_ROOT}/build/slack-user"' in script
     assert "foundry_onboarding.handlers.slack_user.handler" in script
+    assert "${LAMBDA_BUILD_IMAGE:-public.ecr.aws/sam/build-python3.14}" in script
 
     result = subprocess.run(
         ["bash", "-n", str(BUILD_SCRIPT)],

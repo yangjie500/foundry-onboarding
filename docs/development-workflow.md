@@ -54,6 +54,28 @@ synthesis, diff, or deployment. That command performs the `linux/amd64` binary
 wheel installation and handler import verification that a host-only Python
 environment cannot replace.
 
+### Working with a restricted container registry
+
+The packaging script uses `public.ecr.aws/sam/build-python3.14` by default. If
+an enterprise network cannot access Amazon ECR Public, mirror that image into an
+approved private registry and select it with `LAMBDA_BUILD_IMAGE`:
+
+```bash
+LAMBDA_BUILD_IMAGE=123456789012.dkr.ecr.eu-central-1.amazonaws.com/approved/sam-build-python3.14:approved-version \
+  make package
+```
+
+Authenticate Docker to the private registry before running the build. The
+internal image must preserve the official AWS SAM Python 3.14 build image and
+provide a `linux/amd64` manifest. Prefer an immutable tag or digest that has
+passed the enterprise image-scanning process.
+
+An enterprise registry administrator can populate the private repository by
+mirroring the official image or by configuring an Amazon ECR pull-through cache
+for Amazon ECR Public. For an air-gapped environment, import an approved image
+archive with `docker load`, tag it with a local name, and use that name through
+`LAMBDA_BUILD_IMAGE`.
+
 Before the first AWS diff or deployment from a new machine, configure and log
 in to the development account as described in
 [AWS SSO authentication](#aws-sso-authentication). Then confirm that the target
@@ -153,7 +175,8 @@ script accepts only `generic-processor`, `gitlab-user`, `slack-user`, or
 `sqs-workflow-ingress`. For each target it:
 
 1. Recreates only the selected directory under `build/`.
-2. Runs `public.ecr.aws/sam/build-python3.14` for `linux/amd64`.
+2. Runs the image selected by `LAMBDA_BUILD_IMAGE`, defaulting to
+   `public.ecr.aws/sam/build-python3.14`, for `linux/amd64`.
 3. Installs hashed dependencies using binary wheels only.
 4. Copies `src/foundry_onboarding` into the artifact.
 5. Removes Python cache files from the copied source.
@@ -606,7 +629,7 @@ directly invoking a Lambda is a separate validation step.
 | --- | --- |
 | `make install` | Install locked Node.js and Python development dependencies |
 | `make requirements` | Export hashed Lambda requirements from `uv.lock` |
-| `make package` | Export requirements, build all three Lambda artifacts, and verify their imports |
+| `make package` | Export requirements, build all four Lambda artifacts, and verify their imports |
 | `make format` | Apply Ruff formatting and safe lint fixes |
 | `make lint` | Check formatting and lint rules |
 | `make typecheck` | Run strict mypy checks |
