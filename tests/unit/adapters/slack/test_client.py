@@ -156,8 +156,10 @@ def test_invite_user_reconciles_existing_membership(error: str, expected: str) -
 def test_invite_user_translates_authentication_errors(error: str) -> None:
     pool = FakeHttpPool([_response(200, {"ok": False, "error": error})])
 
-    with pytest.raises(SlackAuthenticationError, match="authentication failed"):
+    with pytest.raises(SlackAuthenticationError, match="authentication failed") as raised:
         _client(pool).invite_user(_request())
+
+    assert f"Slack error: {error}" in str(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -173,8 +175,10 @@ def test_invite_user_translates_authentication_errors(error: str) -> None:
 def test_invite_user_translates_permanent_request_errors(error: str) -> None:
     pool = FakeHttpPool([_response(200, {"ok": False, "error": error})])
 
-    with pytest.raises(SlackRequestError, match="rejected the invitation request"):
+    with pytest.raises(SlackRequestError, match="rejected the invitation request") as raised:
         _client(pool).invite_user(_request())
+
+    assert f"Slack error: {error}" in str(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -191,8 +195,10 @@ def test_invite_user_translates_permanent_request_errors(error: str) -> None:
 def test_invite_user_translates_transient_errors(error: str) -> None:
     pool = FakeHttpPool([_response(200, {"ok": False, "error": error})])
 
-    with pytest.raises(SlackUnavailableError, match="temporarily unavailable"):
+    with pytest.raises(SlackUnavailableError, match="temporarily unavailable") as raised:
         _client(pool).invite_user(_request())
+
+    assert f"Slack error: {error}" in str(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -254,6 +260,13 @@ def test_invite_user_rejects_unknown_application_error_without_exposing_it() -> 
     assert sensitive_error not in str(raised.value)
     assert USER_TOKEN not in str(raised.value)
     assert EMAIL not in str(raised.value)
+
+
+def test_invite_user_exposes_safe_unknown_application_error_identifier() -> None:
+    pool = FakeHttpPool([_response(200, {"ok": False, "error": "new_slack_error"})])
+
+    with pytest.raises(SlackProtocolError, match="new_slack_error"):
+        _client(pool).invite_user(_request())
 
 
 def test_adapter_translates_network_errors() -> None:

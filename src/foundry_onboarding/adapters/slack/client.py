@@ -1,4 +1,5 @@
 import json
+import re
 import ssl
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -21,6 +22,7 @@ _SLACK_INVITE_URL = "https://slack.com/api/admin.users.invite"
 _USER_AGENT = "foundry-onboarding/0.1"
 _REQUEST_TIMEOUT = urllib3.Timeout(connect=3.0, read=10.0)
 _MAX_RESPONSE_BYTES = 16_384
+_SLACK_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_]{0,127}$")
 
 _AUTHENTICATION_ERRORS = frozenset(
     {
@@ -182,13 +184,34 @@ class SlackClient:
         if error == "already_in_team_invited_user":
             return "already_invited"
         if error in _AUTHENTICATION_ERRORS:
-            raise SlackAuthenticationError("Slack authentication failed")
+            raise SlackAuthenticationError(
+                SlackClient._provider_error_message("Slack authentication failed", error)
+            )
         if error in _REQUEST_ERRORS:
-            raise SlackRequestError("Slack rejected the invitation request")
+            raise SlackRequestError(
+                SlackClient._provider_error_message(
+                    "Slack rejected the invitation request",
+                    error,
+                )
+            )
         if error in _UNAVAILABLE_ERRORS:
-            raise SlackUnavailableError("Slack is temporarily unavailable")
+            raise SlackUnavailableError(
+                SlackClient._provider_error_message(
+                    "Slack is temporarily unavailable",
+                    error,
+                )
+            )
 
-        raise SlackProtocolError("Slack returned an unexpected error")
+        raise SlackProtocolError(
+            SlackClient._provider_error_message("Slack returned an unexpected error", error)
+        )
+
+    @staticmethod
+    def _provider_error_message(summary: str, error: str) -> str:
+        if _SLACK_ERROR_CODE.fullmatch(error) is None:
+            return f"{summary} (Slack error identifier was not safe to log)"
+
+        return f"{summary} (Slack error: {error})"
 
     @staticmethod
     def _raise_for_status(status: int) -> None:
