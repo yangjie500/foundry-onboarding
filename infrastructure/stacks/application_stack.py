@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from aws_cdk import CfnOutput, RemovalPolicy, Stack
+from aws_cdk import ArnFormat, CfnOutput, RemovalPolicy, Stack
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_lambda as lambda_
 from aws_cdk import aws_sqs as sqs
@@ -20,12 +20,14 @@ from infrastructure.constructs import (
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _GENERIC_PROCESSOR_ASSET = _PROJECT_ROOT / "build" / "generic-processor"
 _GITLAB_USER_ASSET = _PROJECT_ROOT / "build" / "gitlab-user"
+_SLACK_USER_ASSET = _PROJECT_ROOT / "build" / "slack-user"
 _SQS_WORKFLOW_INGRESS_ASSET = _PROJECT_ROOT / "build" / "sqs-workflow-ingress"
 
 
 class ApplicationStack(Stack):
     generic_processor: lambda_.Function
     gitlab_user: lambda_.Function
+    slack_user: lambda_.Function
     generic_workflow: sfn.StateMachine
     sqs_workflow_ingress: lambda_.Function | None
     development_onboarding_queue: sqs.IQueue | None
@@ -39,6 +41,7 @@ class ApplicationStack(Stack):
         config: EnvironmentConfig,
         generic_processor_code: lambda_.Code | None = None,
         gitlab_user_code: lambda_.Code | None = None,
+        slack_user_code: lambda_.Code | None = None,
         sqs_workflow_ingress_code: lambda_.Code | None = None,
         **kwargs: Any,
     ) -> None:
@@ -109,6 +112,65 @@ class ApplicationStack(Stack):
             )
         )
 
+        slack_user = StandardPythonLambda(
+            self,
+            "SlackUser",
+            function_name=f"foundry-{config.environment}-slack-user",
+            handler="foundry_onboarding.handlers.slack_user.handler",
+            code=slack_user_code or lambda_.Code.from_asset(str(_SLACK_USER_ASSET)),
+            config=config,
+            description="Invite or reconcile a Slack user",
+        )
+        self.slack_user = slack_user.function
+
+        slack_config = config.integrations.slack
+        self.slack_user.add_environment(
+            "SLACK_TEAM_ID_PARAMETER_NAME",
+            slack_config.team_id_parameter_name,
+        )
+        self.slack_user.add_environment(
+            "SLACK_CHANNEL_IDS_PARAMETER_NAME",
+            slack_config.channel_ids_parameter_name,
+        )
+        self.slack_user.add_environment(
+            "SLACK_CREDENTIALS_SECRET_NAME",
+            slack_config.credentials_secret_name,
+        )
+
+        slack_parameter_arns = [
+            self.format_arn(
+                service="ssm",
+                resource="parameter",
+                resource_name=parameter_name.removeprefix("/"),
+            )
+            for parameter_name in (
+                slack_config.team_id_parameter_name,
+                slack_config.channel_ids_parameter_name,
+            )
+        ]
+        self.slack_user.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["ssm:GetParameters"],
+                resources=slack_parameter_arns,
+            )
+        )
+
+        # Secrets Manager appends six random characters to a secret's ARN. The
+        # six single-character wildcards retain exact-name scoping while
+        # matching that service-managed suffix.
+        slack_credentials_secret_arn = self.format_arn(
+            service="secretsmanager",
+            resource="secret",
+            resource_name=f"{slack_config.credentials_secret_name}-??????",
+            arn_format=ArnFormat.COLON_RESOURCE_NAME,
+        )
+        self.slack_user.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["secretsmanager:GetSecretValue"],
+                resources=[slack_credentials_secret_arn],
+            )
+        )
+
         generic_variable = ssm.StringParameter(
             self,
             "GenericExampleVariable",
@@ -147,6 +209,7 @@ class ApplicationStack(Stack):
             state_machine_name=f"foundry-{config.environment}-generic-workflow",
             processor=self.generic_processor,
             gitlab_user=self.gitlab_user,
+            slack_user=self.slack_user,
             config=config,
         )
         self.generic_workflow = workflow.state_machine
@@ -259,4 +322,10 @@ class ApplicationStack(Stack):
             "GitLabUserFunctionName",
             value=self.gitlab_user.function_name,
             description="Name of the GitLab user Lambda",
+        )
+        CfnOutput(
+            self,
+            "SlackUserFunctionName",
+            value=self.slack_user.function_name,
+            description="Name of the Slack user Lambda",
         )

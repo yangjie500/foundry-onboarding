@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "request_id": "f084a40c-2d45-4bc9-96b2-d650bb746413",
+  "action": "onboard_user",
+  "gitlab": {
+    "status": "created",
+    "result": {
+      "id": 123,
+      "username": "jane.smith"
+    }
+  },
+  "slack": {
+    "status": "invited"
+  }
+}

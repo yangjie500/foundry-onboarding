@@ -52,7 +52,12 @@ def _valid_config() -> dict[str, object]:
                 "base_url_parameter_name": "/foundry/dev/gitlab/base-url",
                 "api_token_parameter_name": "/foundry/dev/gitlab/api-token",
                 "tls_verify": False,
-            }
+            },
+            "slack": {
+                "team_id_parameter_name": "/foundry/dev/slack/team-id",
+                "channel_ids_parameter_name": "/foundry/dev/slack/channel-ids",
+                "credentials_secret_name": "foundry/dev/slack/credentials",
+            },
         },
     }
 
@@ -100,6 +105,15 @@ def test_load_environment_config(
     )
     assert config.integrations.gitlab.ca_bundle_parameter_name is None
     assert config.integrations.gitlab.tls_verify is (environment != "dev")
+    assert config.integrations.slack.team_id_parameter_name == (
+        f"/foundry/{environment}/slack/team-id"
+    )
+    assert config.integrations.slack.channel_ids_parameter_name == (
+        f"/foundry/{environment}/slack/channel-ids"
+    )
+    assert config.integrations.slack.credentials_secret_name == (
+        f"foundry/{environment}/slack/credentials"
+    )
 
 
 @pytest.mark.parametrize(
@@ -121,6 +135,9 @@ def test_load_environment_config(
         ("integrations.gitlab", "base_url_parameter_name", "missing-leading-slash"),
         ("integrations.gitlab", "api_token_parameter_name", "missing-leading-slash"),
         ("integrations.gitlab", "ca_bundle_parameter_name", "missing-leading-slash"),
+        ("integrations.slack", "team_id_parameter_name", "missing-leading-slash"),
+        ("integrations.slack", "channel_ids_parameter_name", "missing-leading-slash"),
+        ("integrations.slack", "credentials_secret_name", "invalid secret name"),
     ],
 )
 def test_environment_config_rejects_invalid_settings(
@@ -171,6 +188,18 @@ def test_environment_config_rejects_duplicate_gitlab_parameter_names() -> None:
     gitlab["api_token_parameter_name"] = gitlab["base_url_parameter_name"]
 
     with pytest.raises(ValidationError, match="GitLab parameter names must be distinct"):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_rejects_duplicate_slack_parameter_names() -> None:
+    raw_config = _valid_config()
+    integrations = raw_config["integrations"]
+    assert isinstance(integrations, dict)
+    slack = integrations["slack"]
+    assert isinstance(slack, dict)
+    slack["channel_ids_parameter_name"] = slack["team_id_parameter_name"]
+
+    with pytest.raises(ValidationError, match="Slack parameter names must be distinct"):
         EnvironmentConfig.model_validate(raw_config)
 
 

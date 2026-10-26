@@ -51,7 +51,12 @@ def _config(
                 "gitlab": {
                     "base_url_parameter_name": f"/foundry/{environment}/gitlab/base-url",
                     "api_token_parameter_name": f"/foundry/{environment}/gitlab/api-token",
-                }
+                },
+                "slack": {
+                    "team_id_parameter_name": f"/foundry/{environment}/slack/team-id",
+                    "channel_ids_parameter_name": (f"/foundry/{environment}/slack/channel-ids"),
+                    "credentials_secret_name": (f"foundry/{environment}/slack/credentials"),
+                },
             },
         }
     )
@@ -75,6 +80,13 @@ def _template(config: EnvironmentConfig | None = None) -> Template:
         handler="index.handler",
         code=lambda_.Code.from_inline("def handler(event, context): return event"),
     )
+    slack_user = lambda_.Function(
+        stack,
+        "SlackUser",
+        runtime=lambda_.Runtime.PYTHON_3_14,
+        handler="index.handler",
+        code=lambda_.Code.from_inline("def handler(event, context): return event"),
+    )
 
     GenericWorkflow(
         stack,
@@ -82,6 +94,7 @@ def _template(config: EnvironmentConfig | None = None) -> Template:
         state_machine_name=f"foundry-{resolved_config.environment}-generic-workflow",
         processor=processor,
         gitlab_user=gitlab_user,
+        slack_user=slack_user,
         config=resolved_config,
     )
 
@@ -105,7 +118,11 @@ def _state_machine_definition(template: Template) -> dict[str, object]:
             return part
         part_value = cast(dict[str, Any], part)
         logical_id = cast(list[str], part_value["Fn::GetAtt"])[0]
-        return "GITLAB_USER_ARN" if logical_id.startswith("GitLabUser") else "PROCESSOR_ARN"
+        if logical_id.startswith("GitLabUser"):
+            return "GITLAB_USER_ARN"
+        if logical_id.startswith("SlackUser"):
+            return "SLACK_USER_ARN"
+        return "PROCESSOR_ARN"
 
     serialized = "".join(serialize_part(part) for part in parts)
 
@@ -203,6 +220,7 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                     },
                 ],
                 "Type": "Task",
+                "TimeoutSeconds": 30,
                 "Resource": "PROCESSOR_ARN",
                 "Parameters": {
                     "schema_version.$": "$.schema_version",
@@ -216,7 +234,7 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                 "Cause": "The generic processor failed",
             },
             "Invoke GitLab user": {
-                "End": True,
+                "Next": "Invoke Slack user",
                 "Retry": [
                     {
                         "ErrorEquals": ["GitLabUnavailableError"],
@@ -272,6 +290,12 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                     },
                 ],
                 "Type": "Task",
+                "TimeoutSeconds": 30,
+                "ResultPath": "$.gitlab",
+                "ResultSelector": {
+                    "status.$": "$.status",
+                    "result.$": "$.result",
+                },
                 "Resource": "GITLAB_USER_ARN",
                 "Parameters": {
                     "schema_version.$": "$.schema_version",
@@ -318,6 +342,103 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                     }
                 ],
                 "Default": "Invalid workflow input",
+            },
+            "Invoke Slack user": {
+                "Next": "Format onboarding result",
+                "Retry": [
+                    {
+                        "ErrorEquals": ["SlackUnavailableError"],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2,
+                        "JitterStrategy": "FULL",
+                    },
+                    {
+                        "ErrorEquals": [
+                            "Lambda.ServiceException",
+                            "Lambda.AWSLambdaException",
+                            "Lambda.SdkClientException",
+                            "Lambda.TooManyRequestsException",
+                        ],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2,
+                        "JitterStrategy": "FULL",
+                    },
+                ],
+                "Catch": [
+                    {
+                        "ErrorEquals": ["InvalidInputError"],
+                        "ResultPath": None,
+                        "Next": "Invalid workflow input",
+                    },
+                    {
+                        "ErrorEquals": [
+                            "ConfigurationError",
+                            "SlackAuthenticationError",
+                        ],
+                        "ResultPath": None,
+                        "Next": "Slack configuration failed",
+                    },
+                    {
+                        "ErrorEquals": ["SlackRequestError"],
+                        "ResultPath": None,
+                        "Next": "Slack provisioning rejected",
+                    },
+                    {
+                        "ErrorEquals": ["SlackProtocolError"],
+                        "ResultPath": None,
+                        "Next": "Slack integration failed",
+                    },
+                    {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": None,
+                        "Next": "Slack integration failed",
+                    },
+                ],
+                "Type": "Task",
+                "TimeoutSeconds": 30,
+                "ResultPath": "$.slack",
+                "ResultSelector": {"status.$": "$.status"},
+                "Resource": "SLACK_USER_ARN",
+                "Parameters": {
+                    "schema_version.$": "$.schema_version",
+                    "request_id.$": "$.request_id",
+                    "name.$": "$.payload.name",
+                    "email.$": "$.payload.email",
+                },
+            },
+            "Format onboarding result": {
+                "Type": "Pass",
+                "Parameters": {
+                    "schema_version.$": "$.schema_version",
+                    "request_id.$": "$.request_id",
+                    "action": "onboard_user",
+                    "gitlab": {
+                        "status.$": "$.gitlab.status",
+                        "result": {
+                            "id.$": "$.gitlab.result.id",
+                            "username.$": "$.gitlab.result.username",
+                        },
+                    },
+                    "slack": {"status.$": "$.slack.status"},
+                },
+                "End": True,
+            },
+            "Slack configuration failed": {
+                "Type": "Fail",
+                "Error": "SlackConfigurationFailed",
+                "Cause": "Slack configuration or authentication failed",
+            },
+            "Slack provisioning rejected": {
+                "Type": "Fail",
+                "Error": "SlackProvisioningRejected",
+                "Cause": "Slack user provisioning was rejected",
+            },
+            "Slack integration failed": {
+                "Type": "Fail",
+                "Error": "SlackIntegrationFailed",
+                "Cause": "The Slack integration failed",
             },
             "GitLab configuration failed": {
                 "Type": "Fail",
@@ -429,6 +550,22 @@ def test_generic_workflow_can_invoke_only_its_task_functions() -> None:
                                         {
                                             "Fn::GetAtt": [
                                                 Match.string_like_regexp("^GitLabUser"),
+                                                "Arn",
+                                            ]
+                                        }
+                                    ]
+                                ),
+                            }
+                        ),
+                        Match.object_like(
+                            {
+                                "Action": "lambda:InvokeFunction",
+                                "Effect": "Allow",
+                                "Resource": Match.array_with(
+                                    [
+                                        {
+                                            "Fn::GetAtt": [
+                                                Match.string_like_regexp("^SlackUser"),
                                                 "Arn",
                                             ]
                                         }

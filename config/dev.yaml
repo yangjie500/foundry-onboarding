@@ -15,7 +15,7 @@ workflow:
 
 observability:
   log_retention_days: 14
-  enable_tracing: true
+  enable_tracing: false
   workflow_log_level: ALL
 
 ingestion:
@@ -37,3 +37,7 @@ integrations:
     base_url_parameter_name: /foundry/dev/gitlab/base-url
     api_token_parameter_name: /foundry/dev/gitlab/api-token
     tls_verify: false
+  slack:
+    team_id_parameter_name: /foundry/dev/slack/team-id
+    channel_ids_parameter_name: /foundry/dev/slack/channel-ids
+    credentials_secret_name: foundry/dev/slack/credentials

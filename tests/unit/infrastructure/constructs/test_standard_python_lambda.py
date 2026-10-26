@@ -47,7 +47,12 @@ def _config(
                 "gitlab": {
                     "base_url_parameter_name": f"/foundry/{environment}/gitlab/base-url",
                     "api_token_parameter_name": f"/foundry/{environment}/gitlab/api-token",
-                }
+                },
+                "slack": {
+                    "team_id_parameter_name": f"/foundry/{environment}/slack/team-id",
+                    "channel_ids_parameter_name": (f"/foundry/{environment}/slack/channel-ids"),
+                    "credentials_secret_name": (f"foundry/{environment}/slack/credentials"),
+                },
             },
         }
     )

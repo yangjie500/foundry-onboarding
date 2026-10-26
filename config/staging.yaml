@@ -15,12 +15,16 @@ workflow:
 
 observability:
   log_retention_days: 30
-  enable_tracing: true
+  enable_tracing: false
   workflow_log_level: ALL
 
 ingestion:
   sqs:
-    mode: disabled
+    mode: external
+    batch_size: 10
+    external:
+      queue_arn: arn:aws:sqs:us-east-1:061051259053:foundry-staging-external-onboarding
+      event_source_mapping_enabled: true
 
 parameters:
   generic_variable_name: /foundry/staging/generic/example-variable
@@ -32,3 +36,7 @@ integrations:
     base_url_parameter_name: /foundry/staging/gitlab/base-url
     api_token_parameter_name: /foundry/staging/gitlab/api-token
     tls_verify: true
+  slack:
+    team_id_parameter_name: /foundry/staging/slack/team-id
+    channel_ids_parameter_name: /foundry/staging/slack/channel-ids
+    credentials_secret_name: foundry/staging/slack/credentials

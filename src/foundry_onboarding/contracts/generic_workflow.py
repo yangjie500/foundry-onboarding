@@ -3,7 +3,8 @@ from typing import Annotated, Literal, Self
 from pydantic import EmailStr, Field, StrictBool, model_validator
 
 from foundry_onboarding.contracts.common import ContractModel, WorkflowIdentity
-from foundry_onboarding.contracts.gitlab_user import GitLabUsername
+from foundry_onboarding.contracts.gitlab_user import GitLabUsername, GitLabUserResult
+from foundry_onboarding.contracts.slack_user import SlackInvitationStatus
 
 
 class EchoWorkflowPayload(ContractModel):
@@ -37,3 +38,24 @@ class GenericWorkflowInput(WorkflowIdentity):
             raise ValueError("onboard_user action requires an onboarding payload")
 
         return self
+
+
+class OnboardUserGitLabOutput(ContractModel):
+    """Provider-safe GitLab result embedded in an onboarding workflow result."""
+
+    status: Literal["created", "existing"]
+    result: GitLabUserResult
+
+
+class OnboardUserSlackOutput(ContractModel):
+    """Provider-safe Slack result embedded in an onboarding workflow result."""
+
+    status: SlackInvitationStatus
+
+
+class OnboardUserWorkflowOutput(WorkflowIdentity):
+    """Sanitized result returned by a successful onboarding workflow."""
+
+    action: Literal["onboard_user"]
+    gitlab: OnboardUserGitLabOutput
+    slack: OnboardUserSlackOutput

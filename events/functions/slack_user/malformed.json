@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "request_id": "not-a-uuid",
+  "name": "",
+  "email": "not-an-email",
+  "user_token": "must-not-be-accepted"
+}

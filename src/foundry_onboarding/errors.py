@@ -53,3 +53,27 @@ class GitLabIdentityConflictError(ApplicationError):
     """Raised when an existing GitLab identity conflicts with a request."""
 
     error_code: ClassVar[str] = "GITLAB_IDENTITY_CONFLICT"
+
+
+class SlackAuthenticationError(ApplicationError):
+    """Raised when Slack rejects the configured OAuth credential or access."""
+
+    error_code: ClassVar[str] = "SLACK_AUTHENTICATION_ERROR"
+
+
+class SlackRequestError(ApplicationError):
+    """Raised when Slack permanently rejects an invitation request."""
+
+    error_code: ClassVar[str] = "SLACK_REQUEST_ERROR"
+
+
+class SlackUnavailableError(ApplicationError):
+    """Raised when Slack cannot be reached or should be retried later."""
+
+    error_code: ClassVar[str] = "SLACK_UNAVAILABLE"
+
+
+class SlackProtocolError(ApplicationError):
+    """Raised when Slack returns an unexpected or malformed response."""
+
+    error_code: ClassVar[str] = "SLACK_PROTOCOL_ERROR"

@@ -32,3 +32,7 @@ integrations:
     base_url_parameter_name: /foundry/production/gitlab/base-url
     api_token_parameter_name: /foundry/production/gitlab/api-token
     tls_verify: true
+  slack:
+    team_id_parameter_name: /foundry/production/slack/team-id
+    channel_ids_parameter_name: /foundry/production/slack/channel-ids
+    credentials_secret_name: foundry/production/slack/credentials

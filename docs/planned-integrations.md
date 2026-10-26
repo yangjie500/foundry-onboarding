@@ -12,8 +12,12 @@ reconciliation service, Lambda handler, separate deployment package, scoped
 Parameter Store permissions, optional custom CA support, and tests. Custom CA
 support is not activated in the current development configuration. The Lambda
 is connected to Step Functions through the `onboard_user` route, but it has not
-been connected to SQS, deployed, or validated end to end. Slack remains planned
-and unimplemented.
+been connected to SQS, deployed, or validated end to end. Slack contracts,
+runtime configuration, API adapter, and provider error model are implemented;
+its reconciliation service and Lambda handler are also implemented. The Slack
+dependency group, lockfile, hashed requirements, and package build target are
+defined, but the Docker artifact build has not been run. Infrastructure and
+workflow orchestration remain planned.
 
 The SQS workflow-ingress application code is implemented with a dedicated
 external contract, runtime state-machine reference, Step Functions adapter,
@@ -27,9 +31,9 @@ can consume only the development input queue and start only the onboarding state
 machine; it cannot access the DLQ, provider configuration, or provider
 credentials. The resources have not yet been deployed or validated end to end.
 The infrastructure also supports an externally managed Standard queue through a
-disabled-first, two-deployment handoff. Staging and production remain configured
-as `disabled`, so they do not currently create an ingress Lambda or event source.
-See [`external-sqs-handoff.md`](external-sqs-handoff.md) for the information and
+disabled-first, two-deployment handoff. Staging currently enables its external
+queue event source, while production remains configured as `disabled`. See
+[`external-sqs-handoff.md`](external-sqs-handoff.md) for the information and
 policy changes required from the external queue team.
 
 The current generic processor and its example Parameter Store values should
@@ -63,10 +67,10 @@ generic processor loader is a thin consumer that composes these reusable
 pieces and caches its typed configuration for a warm Lambda execution
 environment.
 
-GitLab reuses this shared adapter through its typed loader. Slack should follow
-the same pattern rather than duplicate boto3 retrieval code. Secrets Manager
-support is implemented and tested but is not granted to or called by the
-current generic or GitLab Lambda.
+GitLab reuses this shared adapter through its typed loader. Slack now does the
+same through its typed runtime loader rather than duplicating boto3 retrieval
+code. Secrets Manager support is implemented and tested but is not yet granted
+to a Slack Lambda because that function has not been added.
 
 ## Current workflow direction
 
@@ -120,7 +124,8 @@ class GitLabSettings(SettingsModel):
 
 
 class SlackSettings(SettingsModel):
-    default_channel_parameter_name: str
+    team_id_parameter_name: str
+    channel_ids_parameter_name: str
     credentials_secret_name: str
 
 
@@ -153,7 +158,8 @@ integrations:
     tls_verify: false
 
   slack:
-    default_channel_parameter_name: /foundry/dev/slack/default-channel
+    team_id_parameter_name: /foundry/dev/slack/team-id
+    channel_ids_parameter_name: /foundry/dev/slack/channel-ids
     credentials_secret_name: foundry/dev/slack/credentials
 ```
 
@@ -167,7 +173,8 @@ for example:
 
 ```text
 /foundry/dev/gitlab/base-url
-/foundry/dev/slack/default-channel
+/foundry/dev/slack/team-id
+/foundry/dev/slack/channel-ids
 ```
 
 CDK may create and manage these non-secret parameters. Prefer exact parameter
@@ -200,10 +207,13 @@ A possible Slack secret document is:
 
 ```json
 {
-  "bot_token": "...",
-  "signing_secret": "..."
+  "user_token": "..."
 }
 ```
+
+The Slack Admin API invitation method requires a user OAuth token. A signing
+secret is not needed because the planned Lambda makes outbound API calls and
+does not receive Slack webhooks or interactive requests.
 
 Group secret fields only when they are consumed by the same Lambda and share
 the same access and rotation lifecycle. Use separate secrets when credentials
@@ -225,11 +235,13 @@ GITLAB_API_TOKEN_PARAMETER_NAME=/foundry/dev/gitlab/api-token
 GITLAB_TLS_VERIFY=false
 ```
 
-The planned Slack function would receive:
+The planned Slack function will receive the references already defined in the
+environment configuration:
 
 ```text
 APP_ENV=dev
-SLACK_DEFAULT_CHANNEL_PARAMETER_NAME=/foundry/dev/slack/default-channel
+SLACK_TEAM_ID_PARAMETER_NAME=/foundry/dev/slack/team-id
+SLACK_CHANNEL_IDS_PARAMETER_NAME=/foundry/dev/slack/channel-ids
 SLACK_CREDENTIALS_SECRET_NAME=foundry/dev/slack/credentials
 ```
 
@@ -248,23 +260,22 @@ class GitLabConfiguration(BaseModel):
     tls_verify: StrictBool
 
 
-@dataclass(frozen=True, slots=True)
-class SlackConfiguration:
-    default_channel: str
-    bot_token: str
-    signing_secret: str
+class SlackConfiguration(BaseModel):
+    team_id: str
+    channel_ids: tuple[str, ...]
+    user_token: SecretStr
 ```
 
 Provider services should receive only their own dependencies. Keep AWS SDK
 calls in adapters rather than handlers, services, or contract models. The
-current GitLab loader retrieves its two values on each invocation; introduce
+GitLab and Slack loaders retrieve current values on each invocation; introduce
 caching only with a documented refresh policy. Never log or return secret
 values.
 
 ## IAM boundaries
 
-The GitLab Lambda may read only its two GitLab parameters. The Slack Lambda may
-eventually read only its Slack parameter and Slack secret.
+The GitLab Lambda may read only its GitLab parameters. The Slack Lambda may
+eventually read only its two Slack parameters and Slack secret.
 
 Expected actions are narrowly scoped forms of:
 

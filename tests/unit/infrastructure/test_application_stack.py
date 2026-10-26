@@ -46,6 +46,7 @@ def _template(
             "def handler(event, context): return event"
         ),
         gitlab_user_code=lambda_.Code.from_inline("def handler(event, context): return event"),
+        slack_user_code=lambda_.Code.from_inline("def handler(event, context): return event"),
         sqs_workflow_ingress_code=lambda_.Code.from_inline(
             "def handler(event, context): return event"
         ),
@@ -73,10 +74,11 @@ def test_application_stack_defaults_to_packaged_processor_asset(
     config = load_environment_config("dev")
     ApplicationStack(app, "test-default-asset", config=config)
 
-    assert len(asset_paths) == 3
+    assert len(asset_paths) == 4
     assert {path.rsplit("/", maxsplit=1)[-1] for path in asset_paths} == {
         "generic-processor",
         "gitlab-user",
+        "slack-user",
         "sqs-workflow-ingress",
     }
 
@@ -124,10 +126,10 @@ def _function_role_logical_id(template: Template, function_name: str) -> str:
 def test_application_stack_creates_expected_resource_graph() -> None:
     template = _template()
 
-    template.resource_count_is("AWS::Lambda::Function", 3)
+    template.resource_count_is("AWS::Lambda::Function", 4)
     template.resource_count_is("AWS::StepFunctions::StateMachine", 1)
-    template.resource_count_is("AWS::Logs::LogGroup", 4)
-    template.resource_count_is("AWS::IAM::Role", 4)
+    template.resource_count_is("AWS::Logs::LogGroup", 5)
+    template.resource_count_is("AWS::IAM::Role", 5)
     template.resource_count_is("AWS::SSM::Parameter", 1)
     template.resource_count_is("AWS::SQS::Queue", 2)
     template.resource_count_is("AWS::SQS::QueuePolicy", 2)
@@ -176,6 +178,33 @@ def test_application_stack_applies_environment_configuration(
             "Runtime": "python3.14",
             "Timeout": 30,
             "TracingConfig": {"Mode": "Active"},
+        },
+    )
+    template.has_resource_properties(
+        "AWS::Lambda::Function",
+        {
+            "Architectures": ["x86_64"],
+            "Description": "Invite or reconcile a Slack user",
+            "Environment": {
+                "Variables": {
+                    "APP_ENV": environment,
+                    "SLACK_TEAM_ID_PARAMETER_NAME": (f"/foundry/{environment}/slack/team-id"),
+                    "SLACK_CHANNEL_IDS_PARAMETER_NAME": (
+                        f"/foundry/{environment}/slack/channel-ids"
+                    ),
+                    "SLACK_CREDENTIALS_SECRET_NAME": (f"foundry/{environment}/slack/credentials"),
+                }
+            },
+            "FunctionName": f"foundry-{environment}-slack-user",
+            "Handler": "foundry_onboarding.handlers.slack_user.handler",
+            "LoggingConfig": {
+                "ApplicationLogLevel": "INFO",
+                "LogFormat": "JSON",
+                "SystemLogLevel": "WARN",
+            },
+            "MemorySize": 256,
+            "Runtime": "python3.14",
+            "Timeout": 30,
         },
     )
     template.has_resource_properties(
@@ -248,7 +277,7 @@ def test_application_stack_applies_environment_configuration(
         dict[str, dict[str, Any]],
         template.find_resources("AWS::Logs::LogGroup"),
     )
-    expected_log_group_count = 4 if environment == "dev" else 3
+    expected_log_group_count = 5 if environment == "dev" else 4
     assert len(log_groups) == expected_log_group_count
     for log_group in log_groups.values():
         assert log_group["Properties"]["RetentionInDays"] == retention_days
@@ -287,7 +316,7 @@ def test_application_stack_configures_parameter_store_access() -> None:
         for statement in policy["Properties"]["PolicyDocument"]["Statement"]
         if statement["Action"] == "ssm:GetParameters"
     ]
-    assert len(statements) == 2
+    assert len(statements) == 3
 
     resource_documents = [json.dumps(statement["Resource"]) for statement in statements]
     generic_resources = next(
@@ -302,6 +331,48 @@ def test_application_stack_configures_parameter_store_access() -> None:
     assert "parameter/foundry/dev/gitlab/api-token" in gitlab_resources
     assert "generic" not in gitlab_resources
     assert len(json.loads(gitlab_resources)) == 2
+
+    slack_resources = next(
+        resources for resources in resource_documents if "slack/team-id" in resources
+    )
+    assert "parameter/foundry/dev/slack/team-id" in slack_resources
+    assert "parameter/foundry/dev/slack/channel-ids" in slack_resources
+    assert "gitlab" not in slack_resources
+    assert len(json.loads(slack_resources)) == 2
+
+    slack_role_logical_id = _function_role_logical_id(
+        template,
+        "foundry-dev-slack-user",
+    )
+    slack_policy = next(
+        policy
+        for policy in policies.values()
+        if {"Ref": slack_role_logical_id} in policy["Properties"]["Roles"]
+    )
+    slack_statements = slack_policy["Properties"]["PolicyDocument"]["Statement"]
+    secret_access = next(
+        statement
+        for statement in slack_statements
+        if statement["Action"] == "secretsmanager:GetSecretValue"
+    )
+    assert secret_access == {
+        "Action": "secretsmanager:GetSecretValue",
+        "Effect": "Allow",
+        "Resource": {
+            "Fn::Join": [
+                "",
+                [
+                    "arn:",
+                    {"Ref": "AWS::Partition"},
+                    ":secretsmanager:us-east-1:111111111111:"
+                    "secret:foundry/dev/slack/credentials-??????",
+                ],
+            ]
+        },
+    }
+    slack_policy_json = json.dumps(slack_policy)
+    assert "gitlab" not in slack_policy_json
+    assert '"Resource": "*"' not in slack_policy_json
 
     template_json = json.dumps(template.to_json())
     assert "not-a-real-secret" not in template_json
@@ -516,7 +587,7 @@ def test_application_stack_does_not_provision_queues_outside_development(
     template.resource_count_is("AWS::SQS::Queue", 0)
     template.resource_count_is("AWS::SQS::QueuePolicy", 0)
     template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
-    template.resource_count_is("AWS::Lambda::Function", 2)
+    template.resource_count_is("AWS::Lambda::Function", 3)
 
 
 def test_external_queue_first_deployment_creates_permissions_without_mapping() -> None:
@@ -531,7 +602,7 @@ def test_external_queue_first_deployment_creates_permissions_without_mapping() -
     template.resource_count_is("AWS::SQS::Queue", 0)
     template.resource_count_is("AWS::SQS::QueuePolicy", 0)
     template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
-    template.resource_count_is("AWS::Lambda::Function", 3)
+    template.resource_count_is("AWS::Lambda::Function", 4)
     ingress_role_logical_id = _function_role_logical_id(
         template,
         "foundry-staging-sqs-workflow-ingress",
@@ -596,7 +667,7 @@ def test_external_queue_mapping_can_be_enabled_after_handoff() -> None:
     template.resource_count_is("AWS::SQS::QueuePolicy", 0)
 
 
-def test_workflow_definition_and_policy_reference_both_task_functions() -> None:
+def test_workflow_definition_and_policy_reference_all_task_functions() -> None:
     template = _template()
     processor_logical_id = _function_logical_id(
         template,
@@ -606,15 +677,20 @@ def test_workflow_definition_and_policy_reference_both_task_functions() -> None:
         template,
         "foundry-dev-gitlab-user",
     )
+    slack_user_logical_id = _function_logical_id(
+        template,
+        "foundry-dev-slack-user",
+    )
     processor_arn = {"Fn::GetAtt": [processor_logical_id, "Arn"]}
     gitlab_user_arn = {"Fn::GetAtt": [gitlab_user_logical_id, "Arn"]}
+    slack_user_arn = {"Fn::GetAtt": [slack_user_logical_id, "Arn"]}
     template.has_resource_properties(
         "AWS::StepFunctions::StateMachine",
         {
             "DefinitionString": {
                 "Fn::Join": [
                     "",
-                    Match.array_with([processor_arn, gitlab_user_arn]),
+                    Match.array_with([processor_arn, gitlab_user_arn, slack_user_arn]),
                 ]
             }
         },
@@ -651,6 +727,19 @@ def test_workflow_definition_and_policy_reference_both_task_functions() -> None:
                                 },
                             ],
                         },
+                        {
+                            "Action": "lambda:InvokeFunction",
+                            "Effect": "Allow",
+                            "Resource": [
+                                slack_user_arn,
+                                {
+                                    "Fn::Join": [
+                                        "",
+                                        [slack_user_arn, ":*"],
+                                    ]
+                                },
+                            ],
+                        },
                     ]
                 )
             }
@@ -667,6 +756,10 @@ def test_stack_outputs_reference_created_resources() -> None:
     gitlab_user_logical_id = _function_logical_id(
         template,
         "foundry-dev-gitlab-user",
+    )
+    slack_user_logical_id = _function_logical_id(
+        template,
+        "foundry-dev-slack-user",
     )
     ingress_logical_id = _function_logical_id(
         template,
@@ -698,6 +791,13 @@ def test_stack_outputs_reference_created_resources() -> None:
         {
             "Description": "Name of the GitLab user Lambda",
             "Value": {"Ref": gitlab_user_logical_id},
+        },
+    )
+    template.has_output(
+        "SlackUserFunctionName",
+        {
+            "Description": "Name of the Slack user Lambda",
+            "Value": {"Ref": slack_user_logical_id},
         },
     )
     template.has_output(

@@ -27,6 +27,7 @@ class GenericWorkflow(Construct):
         state_machine_name: str,
         processor: lambda_.IFunction,
         gitlab_user: lambda_.IFunction,
+        slack_user: lambda_.IFunction,
         config: EnvironmentConfig,
     ) -> None:
         super().__init__(scope, construct_id)
@@ -53,6 +54,9 @@ class GenericWorkflow(Construct):
             ),
             payload_response_only=True,
             retry_on_service_exceptions=False,
+            task_timeout=sfn.Timeout.duration(
+                Duration.seconds(config.lambda_function.timeout_seconds)
+            ),
         )
 
         retry = config.workflow.retry
@@ -86,9 +90,58 @@ class GenericWorkflow(Construct):
             ),
             payload_response_only=True,
             retry_on_service_exceptions=False,
+            result_path="$.gitlab",
+            result_selector={
+                "status.$": "$.status",
+                "result.$": "$.result",
+            },
+            task_timeout=sfn.Timeout.duration(
+                Duration.seconds(config.lambda_function.timeout_seconds)
+            ),
         )
         invoke_gitlab_user.add_retry(
             errors=["GitLabUnavailableError"],
+            interval=Duration.seconds(retry.interval_seconds),
+            backoff_rate=retry.backoff_rate,
+            max_attempts=retry.max_attempts,
+            jitter_strategy=sfn.JitterType.FULL,
+        )
+
+        invoke_slack_user = tasks.LambdaInvoke(
+            self,
+            "InvokeSlackUser",
+            state_name="Invoke Slack user",
+            lambda_function=slack_user,
+            payload=sfn.TaskInput.from_object(
+                {
+                    "schema_version": sfn.JsonPath.string_at("$.schema_version"),
+                    "request_id": sfn.JsonPath.string_at("$.request_id"),
+                    "name": sfn.JsonPath.string_at("$.payload.name"),
+                    "email": sfn.JsonPath.string_at("$.payload.email"),
+                }
+            ),
+            payload_response_only=True,
+            retry_on_service_exceptions=False,
+            result_path="$.slack",
+            result_selector={"status.$": "$.status"},
+            task_timeout=sfn.Timeout.duration(
+                Duration.seconds(config.lambda_function.timeout_seconds)
+            ),
+        )
+        invoke_slack_user.add_retry(
+            errors=["SlackUnavailableError"],
+            interval=Duration.seconds(retry.interval_seconds),
+            backoff_rate=retry.backoff_rate,
+            max_attempts=retry.max_attempts,
+            jitter_strategy=sfn.JitterType.FULL,
+        )
+        invoke_slack_user.add_retry(
+            errors=[
+                "Lambda.ServiceException",
+                "Lambda.AWSLambdaException",
+                "Lambda.SdkClientException",
+                "Lambda.TooManyRequestsException",
+            ],
             interval=Duration.seconds(retry.interval_seconds),
             backoff_rate=retry.backoff_rate,
             max_attempts=retry.max_attempts,
@@ -147,6 +200,30 @@ class GenericWorkflow(Construct):
             cause="The GitLab integration failed",
         )
 
+        slack_configuration_failed = sfn.Fail(
+            self,
+            "SlackConfigurationFailed",
+            state_name="Slack configuration failed",
+            error="SlackConfigurationFailed",
+            cause="Slack configuration or authentication failed",
+        )
+
+        slack_provisioning_rejected = sfn.Fail(
+            self,
+            "SlackProvisioningRejected",
+            state_name="Slack provisioning rejected",
+            error="SlackProvisioningRejected",
+            cause="Slack user provisioning was rejected",
+        )
+
+        slack_integration_failed = sfn.Fail(
+            self,
+            "SlackIntegrationFailed",
+            state_name="Slack integration failed",
+            error="SlackIntegrationFailed",
+            cause="The Slack integration failed",
+        )
+
         invoke_processor.add_catch(
             invalid_workflow_input,
             errors=["InvalidInputError"],
@@ -174,6 +251,31 @@ class GenericWorkflow(Construct):
         )
         invoke_gitlab_user.add_catch(
             gitlab_integration_failed,
+            errors=["States.ALL"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_slack_user.add_catch(
+            invalid_workflow_input,
+            errors=["InvalidInputError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_slack_user.add_catch(
+            slack_configuration_failed,
+            errors=["ConfigurationError", "SlackAuthenticationError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_slack_user.add_catch(
+            slack_provisioning_rejected,
+            errors=["SlackRequestError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_slack_user.add_catch(
+            slack_integration_failed,
+            errors=["SlackProtocolError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_slack_user.add_catch(
+            slack_integration_failed,
             errors=["States.ALL"],
             result_path=sfn.JsonPath.DISCARD,
         )
@@ -232,6 +334,29 @@ class GenericWorkflow(Construct):
             sfn.Condition.is_present("$.payload.external"),
             sfn.Condition.is_boolean("$.payload.external"),
         )
+
+        format_onboarding_result = sfn.Pass(
+            self,
+            "FormatOnboardingResult",
+            state_name="Format onboarding result",
+            parameters={
+                "schema_version": sfn.JsonPath.string_at("$.schema_version"),
+                "request_id": sfn.JsonPath.string_at("$.request_id"),
+                "action": "onboard_user",
+                "gitlab": {
+                    "status": sfn.JsonPath.string_at("$.gitlab.status"),
+                    "result": {
+                        "id": sfn.JsonPath.number_at("$.gitlab.result.id"),
+                        "username": sfn.JsonPath.string_at("$.gitlab.result.username"),
+                    },
+                },
+                "slack": {
+                    "status": sfn.JsonPath.string_at("$.slack.status"),
+                },
+            },
+        )
+        invoke_gitlab_user.next(invoke_slack_user).next(format_onboarding_result)
+
         validate_onboard_user_input.when(
             valid_onboard_user_input,
             invoke_gitlab_user,

@@ -34,6 +34,26 @@ make check ENV=dev
 `make package` automatically runs `make requirements`, so it is unnecessary to
 run both commands during the normal workflow.
 
+### Working without Docker
+
+Docker is required only for building and verifying Lambda artifacts. On a
+machine without a working Docker daemon, dependency and source changes can
+still be prepared and checked with:
+
+```bash
+uv lock
+make requirements
+make lint
+make typecheck
+make test
+```
+
+The generated lockfile and hashed requirements can be reviewed and committed.
+Run `make package` later on a Docker-capable machine or CI runner before CDK
+synthesis, diff, or deployment. That command performs the `linux/amd64` binary
+wheel installation and handler import verification that a host-only Python
+environment cannot replace.
+
 Before the first AWS diff or deployment from a new machine, configure and log
 in to the development account as described in
 [AWS SSO authentication](#aws-sso-authentication). Then confirm that the target
@@ -54,19 +74,20 @@ Dependencies are separated by where they are used:
 | `infra` | CDK synthesis and infrastructure configuration | AWS CDK, Pydantic, PyYAML |
 | `lambda-generic` | Code required by the generic processor in Lambda | Pydantic |
 | `lambda-gitlab` | Code required by the GitLab user Lambda | Pydantic, email-validator, urllib3 |
+| `lambda-slack` | Code required by the Slack user Lambda | boto3, Pydantic, email-validator, urllib3 |
 | `lambda-sqs-ingress` | Code required by the SQS workflow-ingress Lambda | boto3, Pydantic, email-validator |
 | `dev` | Local quality and test tools | pytest, Ruff, mypy |
 
 The groups are declared in `pyproject.toml`. A normal `uv sync --locked`
-installs all five groups for local development.
+installs all six groups for local development.
 
 ### Adding or changing a Lambda dependency
 
 Add the dependency to the group for the Lambda that imports it:
-`lambda-generic`, `lambda-gitlab`, or `lambda-sqs-ingress`. Add it to multiple
-groups only when those deployment packages require it. If the infrastructure
-code imports the same dependency, add it to `infra` as well. Then update and
-validate the generated files:
+`lambda-generic`, `lambda-gitlab`, `lambda-slack`, or `lambda-sqs-ingress`. Add
+it to multiple groups only when those deployment packages require it. If the
+infrastructure code imports the same dependency, add it to `infra` as well.
+Then update and validate the generated files:
 
 ```bash
 uv lock
@@ -121,13 +142,14 @@ existing artifacts do not update automatically when source files change.
 
 - `lambda-generic` to `requirements/generic-processor.txt`.
 - `lambda-gitlab` to `requirements/gitlab-user.txt`.
+- `lambda-slack` to `requirements/slack-user.txt`.
 - `lambda-sqs-ingress` to `requirements/sqs-workflow-ingress.txt`.
 
 Each export contains exact versions and package hashes.
 
-`make package` refreshes all three requirements files and invokes
+`make package` refreshes all four requirements files and invokes
 `scripts/build-lambda-asset.sh` once for each supported target. The guarded
-script accepts only `generic-processor`, `gitlab-user`, or
+script accepts only `generic-processor`, `gitlab-user`, `slack-user`, or
 `sqs-workflow-ingress`. For each target it:
 
 1. Recreates only the selected directory under `build/`.
@@ -136,8 +158,9 @@ script accepts only `generic-processor`, `gitlab-user`, or
 4. Copies `src/foundry_onboarding` into the artifact.
 5. Removes Python cache files from the copied source.
 6. Confirms that the source, Pydantic, and the native `pydantic-core` extension
-   are present. The GitLab and ingress assets also require `email-validator`;
-   the ingress asset explicitly checks for boto3 and botocore.
+   are present. The GitLab, Slack, and ingress assets also require
+   `email-validator`; the Slack and ingress assets explicitly check for boto3
+   and botocore, and the Slack asset explicitly checks for urllib3.
 7. Imports the target's configured handler inside the Python 3.14 container.
 
 The resulting directories are the roots of the Lambda zip assets:
@@ -150,6 +173,9 @@ build/
 ├── gitlab-user/
 │   ├── foundry_onboarding/
 │   └── GitLab runtime dependencies
+├── slack-user/
+│   ├── foundry_onboarding/
+│   └── Slack runtime dependencies
 └── sqs-workflow-ingress/
     ├── foundry_onboarding/
     └── SQS ingress runtime dependencies
@@ -258,11 +284,11 @@ The default bootstrap stack provides resources used by CDK, including:
 - An SSM parameter that records the bootstrap template version.
 
 For this project, `make package` creates `build/generic-processor`,
-`build/gitlab-user`, and `build/sqs-workflow-ingress` locally. Development CDK
-packages all three directories and uploads them to the bootstrap S3 bucket
-before CloudFormation creates or updates the Lambda functions. Staging and
-production currently use only the generic and GitLab assets because external
-SQS integration is not configured.
+`build/gitlab-user`, `build/slack-user`, and `build/sqs-workflow-ingress`
+locally. CDK will use the Slack asset after the Slack function is added to the
+infrastructure. Development CDK currently packages the existing function
+assets and uploads them to the bootstrap S3 bucket before CloudFormation
+creates or updates the Lambda functions.
 
 Bootstrap status is specific to an account and Region. Check the development
 environment with:

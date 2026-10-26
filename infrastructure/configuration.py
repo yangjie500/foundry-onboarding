@@ -160,8 +160,34 @@ class GitLabSettings(SettingsModel):
         return self
 
 
+class SlackSettings(SettingsModel):
+    team_id_parameter_name: str = Field(
+        min_length=2,
+        max_length=1_011,
+        pattern=r"^/[A-Za-z0-9_.\-/]+$",
+    )
+    channel_ids_parameter_name: str = Field(
+        min_length=2,
+        max_length=1_011,
+        pattern=r"^/[A-Za-z0-9_.\-/]+$",
+    )
+    credentials_secret_name: str = Field(
+        min_length=1,
+        max_length=512,
+        pattern=r"^[A-Za-z0-9/_+=.@-]+$",
+    )
+
+    @model_validator(mode="after")
+    def parameter_names_must_be_distinct(self) -> Self:
+        if self.team_id_parameter_name == self.channel_ids_parameter_name:
+            raise ValueError("Slack parameter names must be distinct")
+
+        return self
+
+
 class IntegrationSettings(SettingsModel):
     gitlab: GitLabSettings
+    slack: SlackSettings
 
 
 class EnvironmentConfig(SettingsModel):
