@@ -41,9 +41,26 @@ approved.
 
 - `development` creates the project-owned development queue and DLQ and connects
   the ingress Lambda.
+- `external_pending` creates the ingress Lambda and its execution role without
+  requiring or granting access to a queue. Use the `SqsWorkflowIngressRoleArn`
+  stack output for the initial handoff to the external queue owner.
 - `external` imports a queue by ARN and creates the ingress Lambda. Mapping
   activation is controlled separately for a safe cross-team handoff.
 - `disabled` creates neither an ingress Lambda nor an event-source mapping.
+
+When the queue owner requires the consumer role ARN before creating the queue,
+start with:
+
+```yaml
+ingestion:
+  sqs:
+    mode: external_pending
+```
+
+Deploy this configuration and give the `SqsWorkflowIngressRoleArn` output to the
+queue owner. This mode grants the role permission to start the onboarding state
+machine, but grants no SQS or KMS access and creates no event-source mapping.
+After the queue exists, continue with the two-deployment activation below.
 
 Start an integration environment with the mapping disabled:
 
@@ -64,19 +81,21 @@ belong to the queue's account and Region.
 
 ## Two-deployment activation
 
-1. Obtain and validate the external-team information above.
-2. Configure `mode: external` and `event_source_mapping_enabled: false`.
-3. Run `make synth ENV=<environment>` and `make diff ENV=<environment>`. Confirm
+1. If the queue does not exist, configure `mode: external_pending`, deploy, and
+   give the `SqsWorkflowIngressRoleArn` output to the queue owner.
+2. Obtain and validate the external-team information above.
+3. Configure `mode: external` and `event_source_mapping_enabled: false`.
+4. Run `make synth ENV=<environment>` and `make diff ENV=<environment>`. Confirm
    that no `AWS::SQS::Queue` or `AWS::SQS::QueuePolicy` will be created.
-4. Deploy. Give the `SqsWorkflowIngressRoleArn` stack output to the queue owner.
+5. Deploy. Give the `SqsWorkflowIngressRoleArn` stack output to the queue owner.
    This deployment creates the consumer role but does not poll the queue.
-5. The external team grants that role the queue permissions below and, if needed,
+6. The external team grants that role the queue permissions below and, if needed,
    updates its KMS key policy.
-6. After both policy owners confirm their changes, set
+7. After both policy owners confirm their changes, set
    `event_source_mapping_enabled: true`.
-7. Run synth and diff again. Expect one `AWS::Lambda::EventSourceMapping` and still
+8. Run synth and diff again. Expect one `AWS::Lambda::EventSourceMapping` and still
    no queue or queue-policy resources.
-8. Deploy, send an approved non-sensitive test message, and verify the Lambda,
+9. Deploy, send an approved non-sensitive test message, and verify the Lambda,
    Step Functions execution, partial-batch behavior, alarms, and DLQ process.
 
 If validation fails, set `event_source_mapping_enabled: false` and deploy to stop

@@ -1,6 +1,6 @@
 ---
 environment: staging
-aws_region: us-east-1
+aws_region: ap-southeast-1
 
 lambda_function:
   memory_size_mb: 256
@@ -20,11 +20,11 @@ observability:
 
 ingestion:
   sqs:
-    mode: external
-    batch_size: 10
-    external:
-      queue_arn: arn:aws:sqs:us-east-1:061051259053:foundry-staging-external-onboarding
-      event_source_mapping_enabled: true
+    mode: external_pending
+    # batch_size: 10
+    # external:
+    #   queue_arn: arn:aws:sqs:ap-southeast-1:061051259053:foundry-staging-external-onboarding
+    #   event_source_mapping_enabled: true
 
 parameters:
   generic_variable_name: /foundry/staging/generic/example-variable

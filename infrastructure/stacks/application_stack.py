@@ -288,7 +288,7 @@ class ApplicationStack(Stack):
                 description="ARN of the externally managed onboarding queue",
             )
 
-        if ingress_queue is not None:
+        if ingress_queue is not None or ingestion_settings.mode == "external_pending":
             ingress = SqsWorkflowIngress(
                 self,
                 "SqsWorkflowIngress",

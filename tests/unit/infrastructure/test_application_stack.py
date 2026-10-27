@@ -14,6 +14,7 @@ def _template(
     environment: EnvironmentName = "dev",
     *,
     ca_bundle_parameter_name: str | None = None,
+    external_pending: bool = False,
     external_queue_arn: str | None = None,
     external_kms_key_arn: str | None = None,
     event_source_mapping_enabled: bool = False,
@@ -26,6 +27,12 @@ def _template(
         gitlab = cast(dict[str, Any], integrations["gitlab"])
         gitlab["ca_bundle_parameter_name"] = ca_bundle_parameter_name
         gitlab["tls_verify"] = True
+        config = config.model_validate(raw_config)
+    if external_pending:
+        raw_config = config.model_dump()
+        ingestion = cast(dict[str, Any], raw_config["ingestion"])
+        sqs_config = cast(dict[str, Any], ingestion["sqs"])
+        sqs_config["mode"] = "external_pending"
         config = config.model_validate(raw_config)
     if external_queue_arn is not None:
         raw_config = config.model_dump()
@@ -600,8 +607,11 @@ def test_application_stack_does_not_provision_queues_outside_development(
 
 
 def test_external_queue_first_deployment_creates_permissions_without_mapping() -> None:
-    queue_arn = "arn:aws:sqs:us-east-1:222222222222:external-onboarding"
-    key_arn = "arn:aws:kms:us-east-1:222222222222:key/11111111-2222-3333-4444-555555555555"
+    queue_arn = "arn:aws:sqs:ap-southeast-1:222222222222:external-onboarding"
+    key_arn = (
+        "arn:aws:kms:ap-southeast-1:222222222222:"
+        "key/11111111-2222-3333-4444-555555555555"
+    )
     template = _template(
         "staging",
         external_queue_arn=queue_arn,
@@ -641,6 +651,42 @@ def test_external_queue_first_deployment_creates_permissions_without_mapping() -
             "Value": queue_arn,
         },
     )
+    template.has_output(
+        "SqsWorkflowIngressRoleArn",
+        {
+            "Description": "Role ARN that an external SQS queue and KMS key must trust",
+            "Value": {"Fn::GetAtt": [ingress_role_logical_id, "Arn"]},
+        },
+    )
+
+
+def test_external_pending_creates_ingress_role_without_queue_permissions() -> None:
+    template = _template("production", external_pending=True)
+
+    template.resource_count_is("AWS::SQS::Queue", 0)
+    template.resource_count_is("AWS::SQS::QueuePolicy", 0)
+    template.resource_count_is("AWS::Lambda::EventSourceMapping", 0)
+    template.resource_count_is("AWS::Lambda::Function", 4)
+    ingress_role_logical_id = _function_role_logical_id(
+        template,
+        "foundry-production-sqs-workflow-ingress",
+    )
+    policies = cast(dict[str, dict[str, Any]], template.find_resources("AWS::IAM::Policy"))
+    ingress_policy = next(
+        policy
+        for policy in policies.values()
+        if {"Ref": ingress_role_logical_id} in policy["Properties"]["Roles"]
+    )
+    statements = ingress_policy["Properties"]["PolicyDocument"]["Statement"]
+    application_actions = {
+        action
+        for statement in statements
+        for action in (
+            statement["Action"] if isinstance(statement["Action"], list) else [statement["Action"]]
+        )
+        if not action.startswith("xray:")
+    }
+    assert application_actions == {"states:StartExecution"}
     template.has_output(
         "SqsWorkflowIngressRoleArn",
         {

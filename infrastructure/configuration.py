@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 EnvironmentName = Literal["dev", "staging", "production"]
 WorkflowLogLevel = Literal["ALL", "ERROR", "FATAL", "OFF"]
-SqsIngestionMode = Literal["disabled", "development", "external"]
+SqsIngestionMode = Literal["disabled", "development", "external_pending", "external"]
 
 _SQS_QUEUE_ARN = re.compile(
     r"^arn:(?P<partition>aws(?:-[a-z]+)*):sqs:(?P<region>[^:]+):"
@@ -216,8 +216,11 @@ class EnvironmentConfig(SettingsModel):
         sqs_settings = self.ingestion.sqs
         if self.environment != "dev" and sqs_settings.mode == "development":
             raise ValueError("development SQS mode can be used only in development")
-        if self.environment == "dev" and sqs_settings.mode == "external":
-            raise ValueError("external SQS mode cannot be used in development")
+        if self.environment == "dev" and sqs_settings.mode in {
+            "external_pending",
+            "external",
+        }:
+            raise ValueError("external SQS modes cannot be used in development")
         if sqs_settings.external is not None:
             queue_match = _SQS_QUEUE_ARN.fullmatch(sqs_settings.external.queue_arn)
             if queue_match is None or queue_match.group("region") != self.aws_region:

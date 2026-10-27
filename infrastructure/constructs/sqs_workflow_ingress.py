@@ -19,7 +19,7 @@ class SqsWorkflowIngress(Construct):
         scope: Construct,
         construct_id: str,
         *,
-        queue: sqs.IQueue,
+        queue: sqs.IQueue | None,
         state_machine: sfn.IStateMachine,
         code: lambda_.Code,
         config: EnvironmentConfig,
@@ -48,7 +48,9 @@ class SqsWorkflowIngress(Construct):
             self.function.add_to_role_policy(
                 iam.PolicyStatement(actions=["kms:Decrypt"], resources=[kms_key_arn])
             )
-        if connect_event_source:
+        if connect_event_source and queue is None:
+            raise ValueError("an SQS queue is required to connect the event source")
+        if connect_event_source and queue is not None:
             self.function.add_event_source(
                 lambda_event_sources.SqsEventSource(
                     queue,
@@ -57,5 +59,5 @@ class SqsWorkflowIngress(Construct):
                     report_batch_item_failures=True,
                 )
             )
-        else:
+        elif queue is not None:
             queue.grant_consume_messages(self.function)

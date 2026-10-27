@@ -92,7 +92,11 @@ def test_load_environment_config(
     assert config.onboarding.allowed_email_domains_parameter_name == (
         f"/foundry/{environment}/onboarding/allowed-email-domains"
     )
-    expected_mode = "development" if environment == "dev" else "disabled"
+    expected_mode = {
+        "dev": "development",
+        "staging": "external",
+        "production": "disabled",
+    }[environment]
     assert config.ingestion.sqs.mode == expected_mode
     assert config.ingestion.sqs.batch_size == 10
     assert config.ingestion.sqs.visibility_timeout_seconds == 180
@@ -327,17 +331,34 @@ def test_environment_config_requires_settings_for_external_sqs_mode() -> None:
         EnvironmentConfig.model_validate(raw_config)
 
 
-def test_environment_config_rejects_external_settings_in_disabled_mode() -> None:
+@pytest.mark.parametrize("mode", ["disabled", "external_pending"])
+def test_environment_config_rejects_external_settings_without_external_mode(mode: str) -> None:
     raw_config = _valid_config()
     sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
     assert isinstance(sqs, dict)
-    sqs["mode"] = "disabled"
+    sqs["mode"] = mode
     sqs["external"] = {
         "queue_arn": "arn:aws:sqs:us-east-1:222222222222:onboarding",
     }
 
     with pytest.raises(ValidationError, match="external SQS settings require external mode"):
         EnvironmentConfig.model_validate(raw_config)
+
+
+def test_environment_config_accepts_external_pending_outside_development() -> None:
+    raw_config = _valid_config()
+    raw_config["environment"] = "production"
+    gitlab = raw_config["integrations"]["gitlab"]  # type: ignore[index]
+    assert isinstance(gitlab, dict)
+    gitlab["tls_verify"] = True
+    sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
+    assert isinstance(sqs, dict)
+    sqs["mode"] = "external_pending"
+
+    config = EnvironmentConfig.model_validate(raw_config)
+
+    assert config.ingestion.sqs.mode == "external_pending"
+    assert config.ingestion.sqs.external is None
 
 
 def test_environment_config_accepts_external_sqs_outside_development() -> None:
@@ -429,16 +450,18 @@ def test_environment_config_rejects_invalid_external_queue(
         EnvironmentConfig.model_validate(raw_config)
 
 
-def test_environment_config_rejects_external_sqs_in_development() -> None:
+@pytest.mark.parametrize("mode", ["external_pending", "external"])
+def test_environment_config_rejects_external_sqs_modes_in_development(mode: str) -> None:
     raw_config = _valid_config()
     sqs = raw_config["ingestion"]["sqs"]  # type: ignore[index]
     assert isinstance(sqs, dict)
-    sqs["mode"] = "external"
-    sqs["external"] = {
-        "queue_arn": "arn:aws:sqs:us-east-1:222222222222:onboarding",
-    }
+    sqs["mode"] = mode
+    if mode == "external":
+        sqs["external"] = {
+            "queue_arn": "arn:aws:sqs:us-east-1:222222222222:onboarding",
+        }
 
-    with pytest.raises(ValidationError, match="external SQS mode cannot be used in development"):
+    with pytest.raises(ValidationError, match="external SQS modes cannot be used in development"):
         EnvironmentConfig.model_validate(raw_config)
 
 
