@@ -480,6 +480,27 @@ The generic-processor portion of the diff should contain one
 than values, and a scoped `ssm:GetParameters` policy. It must not contain
 `not-a-real-secret` or any real secret value.
 
+## Onboarding email-domain configuration
+
+Before invoking either onboarding Lambda, create the shared email-domain
+allowlist as a Parameter Store `String`. The configured development reference
+is `/foundry/dev/onboarding/allowed-email-domains`; staging and production use
+the same path shape with their environment name. The value is a comma-separated
+list of exact domains, for example:
+
+```bash
+aws ssm put-parameter \
+  --name /foundry/dev/onboarding/allowed-email-domains \
+  --type String \
+  --value 'example.com,subsidiary.example' \
+  --overwrite
+```
+
+Replace the example value with the approved domains. Subdomains are not
+implicitly allowed, so add each one explicitly. Both GitLab and Slack functions
+read this parameter and reject non-allowlisted email domains before making a
+provider API call.
+
 ## GitLab user Lambda configuration
 
 The GitLab user Lambda reads its base URL and API token from two externally

@@ -6,7 +6,11 @@ from foundry_onboarding.adapters.slack.client import create_slack_client
 from foundry_onboarding.contracts.slack_user import SlackUserInput
 from foundry_onboarding.errors import ApplicationError, InvalidInputError
 from foundry_onboarding.handlers.common import safe_request_id
+from foundry_onboarding.runtime_configuration.onboarding import (
+    load_onboarding_policy_configuration,
+)
 from foundry_onboarding.runtime_configuration.slack import load_slack_configuration
+from foundry_onboarding.services.onboarding_policy import require_allowed_email_domain
 from foundry_onboarding.services.slack_user import reconcile_slack_user
 
 logger = logging.getLogger(__name__)
@@ -29,6 +33,8 @@ def handler(event: object, _context: object) -> dict[str, object]:
         raise InvalidInputError("Slack user input is invalid") from None
 
     try:
+        policy = load_onboarding_policy_configuration()
+        require_allowed_email_domain(str(request.email), policy.allowed_email_domains)
         configuration = load_slack_configuration()
         client = create_slack_client(configuration)
         result = reconcile_slack_user(request, client)

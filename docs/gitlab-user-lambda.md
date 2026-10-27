@@ -41,7 +41,7 @@ Before invoking the function, provide all of the following:
 - Working GitLab outbound email if users are expected to receive the password
   reset email requested during creation.
 - Network and DNS connectivity from AWS Lambda to the GitLab base URL.
-- The two environment-specific Parameter Store entries described below.
+- The required environment-specific Parameter Store entries described below.
 
 The current CDK stack does not attach the function to a VPC. A private GitLab
 endpoint therefore requires additional VPC, routing, DNS, security-group, and
@@ -55,6 +55,7 @@ Development expects these externally managed parameters:
 
 | Name | Type | Value |
 | --- | --- | --- |
+| `/foundry/dev/onboarding/allowed-email-domains` | `String` | Comma-separated exact email domains permitted for onboarding |
 | `/foundry/dev/gitlab/base-url` | `String` | GitLab origin, for example `https://gitlab.example.com` |
 | `/foundry/dev/gitlab/api-token` | `SecureString` | GitLab administrator API token |
 | `/foundry/dev/gitlab/ca-bundle` | `String` | Optional public CA certificate bundle for the GitLab server |
@@ -76,6 +77,7 @@ aws ssm get-parameters \
   --names \
     /foundry/dev/gitlab/base-url \
     /foundry/dev/gitlab/api-token \
+    /foundry/dev/onboarding/allowed-email-domains \
   --region us-east-1 \
   --query 'Parameters[].{Name:Name,Type:Type,Version:Version}' \
   --output table
@@ -227,6 +229,7 @@ identity.
 | Exception | Meaning | Retry guidance |
 | --- | --- | --- |
 | `InvalidInputError` | Event violates the Lambda contract | Do not retry unchanged input |
+| `OnboardingPolicyRejectedError` | Email domain is not exactly allowlisted | Do not retry unchanged input |
 | `ConfigurationError` | Parameter references, retrieval, or values are invalid | Repair configuration first |
 | `GitLabAuthenticationError` | GitLab returned 401 or 403 | Repair token or authorization |
 | `GitLabIdentityConflictError` | Existing identity does not match the request | Resolve identity data manually |

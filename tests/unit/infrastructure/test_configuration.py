@@ -47,6 +47,11 @@ def _valid_config() -> dict[str, object]:
             "generic_variable_value": "hello-from-dev-parameter-store",
             "generic_secret_name": "/foundry/dev/generic/example-secret",
         },
+        "onboarding": {
+            "allowed_email_domains_parameter_name": (
+                "/foundry/dev/onboarding/allowed-email-domains"
+            ),
+        },
         "integrations": {
             "gitlab": {
                 "base_url_parameter_name": "/foundry/dev/gitlab/base-url",
@@ -84,6 +89,9 @@ def test_load_environment_config(
     assert config.workflow.retry.max_attempts == 3
     assert config.observability.log_retention_days == retention_days
     assert config.observability.workflow_log_level == workflow_log_level
+    assert config.onboarding.allowed_email_domains_parameter_name == (
+        f"/foundry/{environment}/onboarding/allowed-email-domains"
+    )
     expected_mode = "development" if environment == "dev" else "disabled"
     assert config.ingestion.sqs.mode == expected_mode
     assert config.ingestion.sqs.batch_size == 10
@@ -439,6 +447,22 @@ def test_environment_config_rejects_unknown_fields() -> None:
     raw_config["secret"] = "must not be accepted"
 
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        EnvironmentConfig.model_validate(raw_config)
+
+
+@pytest.mark.parametrize(
+    "parameter_name",
+    ["", "missing-leading-slash", "/contains spaces"],
+)
+def test_environment_config_rejects_invalid_allowed_domain_parameter_name(
+    parameter_name: str,
+) -> None:
+    raw_config = _valid_config()
+    onboarding = raw_config["onboarding"]
+    assert isinstance(onboarding, dict)
+    onboarding["allowed_email_domains_parameter_name"] = parameter_name
+
+    with pytest.raises(ValidationError):
         EnvironmentConfig.model_validate(raw_config)
 
 

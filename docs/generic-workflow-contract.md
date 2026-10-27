@@ -2,9 +2,8 @@
 
 ## Purpose
 
-This contract supports a minimal generic operation and the current GitLab user
-onboarding operation while the later SQS and Slack requirements are still being
-determined.
+This contract supports a minimal generic operation and the GitLab and Slack
+user-onboarding workflow.
 
 ## Version
 
@@ -76,7 +75,8 @@ The response is implemented by `GenericProcessorOutput` in
 
 ## Onboarding transformation
 
-For `onboard_user`, Step Functions invokes the GitLab user Lambda with only:
+For `onboard_user`, Step Functions first invokes the GitLab user Lambda with
+only:
 
 - `schema_version`
 - `request_id`
@@ -100,16 +100,48 @@ A successful GitLab operation returns:
 The workflow does not return the email address, name, token, or raw GitLab
 response.
 
+It then invokes the Slack user Lambda with only:
+
+- `schema_version`
+- `request_id`
+- `name`
+- `email`
+
+The final successful result contains the GitLab status and safe identity fields
+plus the Slack reconciliation status. It excludes the original onboarding
+payload and provider credentials or responses.
+
+## Email-domain policy
+
+Both provider Lambdas enforce the same allowlist after validating their input
+and before loading provider configuration or calling a provider. The allowlist
+is an externally managed Parameter Store `String` referenced by:
+
+```text
+/foundry/<environment>/onboarding/allowed-email-domains
+```
+
+Its value is a comma-separated list such as `example.com,subsidiary.example`.
+Matching is case-insensitive after domain normalization and is exact: allowing
+`example.com` does not allow `engineering.example.com`. List every permitted
+subdomain explicitly. Wildcards, blank entries, and duplicate normalized
+domains are invalid configuration.
+
+A request outside the allowlist raises the permanent
+`OnboardingPolicyRejectedError`. The workflow discards the caught error payload
+and enters `Onboarding policy rejected`; it does not retry or invoke the next
+provider.
+
 ## Retries and failures
 
-The GitLab task retries `GitLabUnavailableError` and AWS Lambda service or
-throttling failures using the configured bounded exponential backoff with full
-jitter. Validation, configuration, authentication, identity conflict, request,
-and protocol failures are not retried.
+Each provider task retries its provider-specific unavailable error and AWS
+Lambda service or throttling failures using the configured bounded exponential
+backoff with full jitter. Validation, policy, configuration, authentication,
+identity conflict, request, and protocol failures are not retried.
 
 Caught error payloads are discarded before the workflow enters a safe Fail
-state. Failures distinguish invalid input, GitLab configuration/authentication,
-provisioning rejection, and other GitLab integration failures.
+state. Failures distinguish invalid input, onboarding policy rejection, and
+provider-specific configuration, provisioning, and integration failures.
 
 ## Invalid input
 
@@ -132,9 +164,10 @@ secrets. Step Functions logging has `IncludeExecutionData` disabled. Standard
 workflow execution history still contains the business input and safe task
 output, so access to execution history must remain restricted.
 
-The generic processor and GitLab Lambda retrieve their configuration directly
-from Parameter Store. Parameter values and raw provider responses must never
-appear in workflow input, output, history, fixtures, or logs.
+The generic processor and provider Lambdas retrieve their configuration
+directly from Parameter Store and Secrets Manager as applicable. Parameter and
+secret values and raw provider responses must never appear in workflow input,
+output, history, fixtures, or logs.
 
 ## Contract organization
 

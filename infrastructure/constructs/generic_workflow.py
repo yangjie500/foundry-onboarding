@@ -224,6 +224,14 @@ class GenericWorkflow(Construct):
             cause="The Slack integration failed",
         )
 
+        onboarding_policy_rejected = sfn.Fail(
+            self,
+            "OnboardingPolicyRejected",
+            state_name="Onboarding policy rejected",
+            error="OnboardingPolicyRejected",
+            cause="The onboarding request violates an approved policy",
+        )
+
         invoke_processor.add_catch(
             invalid_workflow_input,
             errors=["InvalidInputError"],
@@ -232,6 +240,11 @@ class GenericWorkflow(Construct):
         invoke_gitlab_user.add_catch(
             invalid_workflow_input,
             errors=["InvalidInputError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_gitlab_user.add_catch(
+            onboarding_policy_rejected,
+            errors=["OnboardingPolicyRejectedError"],
             result_path=sfn.JsonPath.DISCARD,
         )
         invoke_gitlab_user.add_catch(
@@ -257,6 +270,11 @@ class GenericWorkflow(Construct):
         invoke_slack_user.add_catch(
             invalid_workflow_input,
             errors=["InvalidInputError"],
+            result_path=sfn.JsonPath.DISCARD,
+        )
+        invoke_slack_user.add_catch(
+            onboarding_policy_rejected,
+            errors=["OnboardingPolicyRejectedError"],
             result_path=sfn.JsonPath.DISCARD,
         )
         invoke_slack_user.add_catch(

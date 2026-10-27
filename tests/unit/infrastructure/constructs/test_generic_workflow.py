@@ -47,6 +47,11 @@ def _config(
                 "generic_variable_value": "example-value",
                 "generic_secret_name": f"/foundry/{environment}/generic/example-secret",
             },
+            "onboarding": {
+                "allowed_email_domains_parameter_name": (
+                    f"/foundry/{environment}/onboarding/allowed-email-domains"
+                ),
+            },
             "integrations": {
                 "gitlab": {
                     "base_url_parameter_name": f"/foundry/{environment}/gitlab/base-url",
@@ -263,6 +268,11 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                         "Next": "Invalid workflow input",
                     },
                     {
+                        "ErrorEquals": ["OnboardingPolicyRejectedError"],
+                        "ResultPath": None,
+                        "Next": "Onboarding policy rejected",
+                    },
+                    {
                         "ErrorEquals": [
                             "ConfigurationError",
                             "GitLabAuthenticationError",
@@ -373,6 +383,11 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                         "Next": "Invalid workflow input",
                     },
                     {
+                        "ErrorEquals": ["OnboardingPolicyRejectedError"],
+                        "ResultPath": None,
+                        "Next": "Onboarding policy rejected",
+                    },
+                    {
                         "ErrorEquals": [
                             "ConfigurationError",
                             "SlackAuthenticationError",
@@ -454,6 +469,11 @@ def test_generic_workflow_routes_and_transforms_echo_input() -> None:
                 "Type": "Fail",
                 "Error": "GitLabIntegrationFailed",
                 "Cause": "The GitLab integration failed",
+            },
+            "Onboarding policy rejected": {
+                "Type": "Fail",
+                "Error": "OnboardingPolicyRejected",
+                "Cause": "The onboarding request violates an approved policy",
             },
         },
         "TimeoutSeconds": 300,

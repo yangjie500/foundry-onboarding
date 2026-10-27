@@ -43,6 +43,11 @@ def _config(
                 "generic_variable_value": "example-value",
                 "generic_secret_name": f"/foundry/{environment}/generic/example-secret",
             },
+            "onboarding": {
+                "allowed_email_domains_parameter_name": (
+                    f"/foundry/{environment}/onboarding/allowed-email-domains"
+                ),
+            },
             "integrations": {
                 "gitlab": {
                     "base_url_parameter_name": f"/foundry/{environment}/gitlab/base-url",

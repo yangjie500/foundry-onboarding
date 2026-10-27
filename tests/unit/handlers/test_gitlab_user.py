@@ -12,9 +12,13 @@ from foundry_onboarding.errors import (
     ConfigurationError,
     GitLabUnavailableError,
     InvalidInputError,
+    OnboardingPolicyRejectedError,
 )
 from foundry_onboarding.handlers import gitlab_user
 from foundry_onboarding.runtime_configuration.gitlab import GitLabConfiguration
+from foundry_onboarding.runtime_configuration.onboarding import (
+    OnboardingPolicyConfiguration,
+)
 
 EVENTS_DIRECTORY = Path(__file__).parents[3] / "events" / "functions" / "gitlab_user"
 API_TOKEN = "glpat-not-a-real-token"
@@ -34,6 +38,10 @@ def _configuration() -> GitLabConfiguration:
             "tls_verify": False,
         }
     )
+
+
+def _policy_configuration() -> OnboardingPolicyConfiguration:
+    return OnboardingPolicyConfiguration.model_validate({"allowed_email_domains": "example.com"})
 
 
 def _user() -> GitLabUserRecord:
@@ -72,12 +80,19 @@ class FakeGateway:
 class HandlerHarness:
     gateway: FakeGateway = field(default_factory=FakeGateway)
     configuration: GitLabConfiguration = field(default_factory=_configuration)
+    policy_configuration: OnboardingPolicyConfiguration = field(
+        default_factory=_policy_configuration
+    )
     calls: list[tuple[str, object]] = field(default_factory=list)
 
 
 @pytest.fixture
 def harness(monkeypatch: pytest.MonkeyPatch) -> HandlerHarness:
     harness = HandlerHarness()
+
+    def load_policy_configuration() -> OnboardingPolicyConfiguration:
+        harness.calls.append(("load_policy_configuration", None))
+        return harness.policy_configuration
 
     def load_configuration() -> GitLabConfiguration:
         harness.calls.append(("load_configuration", None))
@@ -87,6 +102,11 @@ def harness(monkeypatch: pytest.MonkeyPatch) -> HandlerHarness:
         harness.calls.append(("create_client", configuration))
         return harness.gateway
 
+    monkeypatch.setattr(
+        gitlab_user,
+        "load_onboarding_policy_configuration",
+        load_policy_configuration,
+    )
     monkeypatch.setattr(gitlab_user, "load_gitlab_configuration", load_configuration)
     monkeypatch.setattr(gitlab_user, "create_gitlab_client", create_client)
     return harness
@@ -101,6 +121,7 @@ def test_handler_returns_created_output_and_composes_dependencies(
 
     assert result == read_event("expected-created.json")
     assert harness.calls == [
+        ("load_policy_configuration", None),
         ("load_configuration", None),
         ("create_client", harness.configuration),
     ]
@@ -131,6 +152,22 @@ def test_invalid_input_is_rejected_before_loading_configuration(
 
     assert raised.value.__cause__ is None
     assert harness.calls == []
+    assert harness.gateway.calls == []
+
+
+def test_disallowed_domain_is_rejected_before_loading_provider_configuration(
+    harness: HandlerHarness,
+) -> None:
+    event = read_event("valid.json")
+    event["email"] = "jane.smith@other.example"
+
+    with pytest.raises(
+        OnboardingPolicyRejectedError,
+        match="Email domain is not allowed",
+    ):
+        gitlab_user.handler(event, object())
+
+    assert harness.calls == [("load_policy_configuration", None)]
     assert harness.gateway.calls == []
 
 

@@ -32,6 +32,9 @@ parameters:
   generic_variable_value: hello-from-dev-parameter-store
   generic_secret_name: /foundry/dev/generic/example-secret
 
+onboarding:
+  allowed_email_domains_parameter_name: /foundry/dev/onboarding/allowed-email-domains
+
 integrations:
   gitlab:
     base_url_parameter_name: /foundry/dev/gitlab/base-url

@@ -31,6 +31,9 @@ parameters:
   generic_variable_value: hello-from-staging-parameter-store
   generic_secret_name: /foundry/staging/generic/example-secret
 
+onboarding:
+  allowed_email_domains_parameter_name: /foundry/staging/onboarding/allowed-email-domains
+
 integrations:
   gitlab:
     base_url_parameter_name: /foundry/staging/gitlab/base-url

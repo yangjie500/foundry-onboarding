@@ -7,7 +7,11 @@ from foundry_onboarding.contracts.gitlab_user import GitLabUserInput
 from foundry_onboarding.errors import ApplicationError, InvalidInputError
 from foundry_onboarding.handlers.common import safe_request_id
 from foundry_onboarding.runtime_configuration.gitlab import load_gitlab_configuration
+from foundry_onboarding.runtime_configuration.onboarding import (
+    load_onboarding_policy_configuration,
+)
 from foundry_onboarding.services.gitlab_user import reconcile_gitlab_user
+from foundry_onboarding.services.onboarding_policy import require_allowed_email_domain
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -29,6 +33,8 @@ def handler(event: object, _context: object) -> dict[str, object]:
         raise InvalidInputError("GitLab user input is invalid") from None
 
     try:
+        policy = load_onboarding_policy_configuration()
+        require_allowed_email_domain(str(request.email), policy.allowed_email_domains)
         configuration = load_gitlab_configuration()
         client = create_gitlab_client(configuration)
         result = reconcile_gitlab_user(request, client)

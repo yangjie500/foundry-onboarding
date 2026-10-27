@@ -25,6 +25,12 @@ class WorkflowStartError(ApplicationError):
     error_code: ClassVar[str] = "WORKFLOW_START_ERROR"
 
 
+class OnboardingPolicyRejectedError(ApplicationError):
+    """Raised when a valid request violates an onboarding business policy."""
+
+    error_code: ClassVar[str] = "ONBOARDING_POLICY_REJECTED"
+
+
 class GitLabAuthenticationError(ApplicationError):
     """Raised when GitLab rejects the configured API credential."""
 

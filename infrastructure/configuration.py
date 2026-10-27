@@ -123,6 +123,14 @@ class ParameterSettings(SettingsModel):
         return self
 
 
+class OnboardingSettings(SettingsModel):
+    allowed_email_domains_parameter_name: str = Field(
+        min_length=2,
+        max_length=1_011,
+        pattern=r"^/[A-Za-z0-9_.\-/]+$",
+    )
+
+
 class GitLabSettings(SettingsModel):
     base_url_parameter_name: str = Field(
         min_length=2,
@@ -198,6 +206,7 @@ class EnvironmentConfig(SettingsModel):
     observability: ObservabilitySettings
     ingestion: IngestionSettings
     parameters: ParameterSettings
+    onboarding: OnboardingSettings
     integrations: IntegrationSettings
 
     @model_validator(mode="after")

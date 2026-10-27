@@ -150,9 +150,15 @@ integrations:
 Use Parameter Store for non-secret configuration:
 
 ```text
+/foundry/<environment>/onboarding/allowed-email-domains
 /foundry/<environment>/slack/team-id
 /foundry/<environment>/slack/channel-ids
 ```
+
+The onboarding parameter contains a comma-separated list of exact permitted
+email domains. Matching is case-insensitive, but subdomains must be listed
+explicitly; wildcards are not supported. GitLab and Slack enforce the same
+policy before calling either provider.
 
 Use Secrets Manager for the user OAuth token:
 
@@ -292,10 +298,11 @@ into the typed Slack output. The handler follows the existing GitLab
 composition pattern:
 
 1. Validate input before loading configuration.
-2. Load Slack runtime configuration.
-3. Create the Slack client.
-4. Invoke the service.
-5. Return the typed, provider-safe output.
+2. Load and enforce the shared email-domain policy.
+3. Load Slack runtime configuration.
+4. Create the Slack client.
+5. Invoke the service.
+6. Return the typed, provider-safe output.
 
 Safe logs may contain:
 
@@ -352,8 +359,8 @@ and configures only reference environment variables.
 
 The function is granted:
 
-- `ssm:GetParameters` for only the configured Slack team and channel
-  parameters.
+- `ssm:GetParameters` for only the shared email-domain allowlist and configured
+  Slack team and channel parameters.
 - `secretsmanager:GetSecretValue` for only the Slack credential secret.
 - No explicit `kms:Decrypt` permission because the current configuration does
   not identify a customer-managed KMS key. Add exact-key access if one is used.
@@ -412,6 +419,9 @@ Slack-specific failure states cover:
 - Configuration or authentication failure.
 - Permanent provisioning rejection.
 - Unexpected provider protocol failure.
+
+The shared permanent `Onboarding policy rejected` state handles a domain that
+is not explicitly allowlisted. Neither provider task retries this error.
 
 The Slack task retries only:
 

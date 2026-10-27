@@ -72,6 +72,13 @@ class ApplicationStack(Stack):
         self.gitlab_user = gitlab_user.function
 
         gitlab_config = config.integrations.gitlab
+        allowed_email_domains_parameter_name = (
+            config.onboarding.allowed_email_domains_parameter_name
+        )
+        self.gitlab_user.add_environment(
+            "ALLOWED_EMAIL_DOMAINS_PARAMETER_NAME",
+            allowed_email_domains_parameter_name,
+        )
         self.gitlab_user.add_environment(
             "GITLAB_BASE_URL_PARAMETER_NAME",
             gitlab_config.base_url_parameter_name,
@@ -99,6 +106,7 @@ class ApplicationStack(Stack):
             for parameter_name in filter(
                 None,
                 (
+                    allowed_email_domains_parameter_name,
                     gitlab_config.base_url_parameter_name,
                     gitlab_config.api_token_parameter_name,
                     gitlab_config.ca_bundle_parameter_name,
@@ -125,6 +133,10 @@ class ApplicationStack(Stack):
 
         slack_config = config.integrations.slack
         self.slack_user.add_environment(
+            "ALLOWED_EMAIL_DOMAINS_PARAMETER_NAME",
+            allowed_email_domains_parameter_name,
+        )
+        self.slack_user.add_environment(
             "SLACK_TEAM_ID_PARAMETER_NAME",
             slack_config.team_id_parameter_name,
         )
@@ -144,6 +156,7 @@ class ApplicationStack(Stack):
                 resource_name=parameter_name.removeprefix("/"),
             )
             for parameter_name in (
+                allowed_email_domains_parameter_name,
                 slack_config.team_id_parameter_name,
                 slack_config.channel_ids_parameter_name,
             )

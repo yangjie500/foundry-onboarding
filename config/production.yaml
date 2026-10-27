@@ -27,6 +27,9 @@ parameters:
   generic_variable_value: hello-from-production-parameter-store
   generic_secret_name: /foundry/production/generic/example-secret
 
+onboarding:
+  allowed_email_domains_parameter_name: /foundry/production/onboarding/allowed-email-domains
+
 integrations:
   gitlab:
     base_url_parameter_name: /foundry/production/gitlab/base-url

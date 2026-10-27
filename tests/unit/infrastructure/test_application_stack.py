@@ -188,6 +188,9 @@ def test_application_stack_applies_environment_configuration(
             "Environment": {
                 "Variables": {
                     "APP_ENV": environment,
+                    "ALLOWED_EMAIL_DOMAINS_PARAMETER_NAME": (
+                        f"/foundry/{environment}/onboarding/allowed-email-domains"
+                    ),
                     "SLACK_TEAM_ID_PARAMETER_NAME": (f"/foundry/{environment}/slack/team-id"),
                     "SLACK_CHANNEL_IDS_PARAMETER_NAME": (
                         f"/foundry/{environment}/slack/channel-ids"
@@ -215,6 +218,9 @@ def test_application_stack_applies_environment_configuration(
             "Environment": {
                 "Variables": {
                     "APP_ENV": environment,
+                    "ALLOWED_EMAIL_DOMAINS_PARAMETER_NAME": (
+                        f"/foundry/{environment}/onboarding/allowed-email-domains"
+                    ),
                     "GITLAB_BASE_URL_PARAMETER_NAME": (f"/foundry/{environment}/gitlab/base-url"),
                     "GITLAB_API_TOKEN_PARAMETER_NAME": (f"/foundry/{environment}/gitlab/api-token"),
                     "GITLAB_TLS_VERIFY": "false" if environment == "dev" else "true",
@@ -329,16 +335,18 @@ def test_application_stack_configures_parameter_store_access() -> None:
     )
     assert "parameter/foundry/dev/gitlab/base-url" in gitlab_resources
     assert "parameter/foundry/dev/gitlab/api-token" in gitlab_resources
+    assert "parameter/foundry/dev/onboarding/allowed-email-domains" in gitlab_resources
     assert "generic" not in gitlab_resources
-    assert len(json.loads(gitlab_resources)) == 2
+    assert len(json.loads(gitlab_resources)) == 3
 
     slack_resources = next(
         resources for resources in resource_documents if "slack/team-id" in resources
     )
     assert "parameter/foundry/dev/slack/team-id" in slack_resources
     assert "parameter/foundry/dev/slack/channel-ids" in slack_resources
+    assert "parameter/foundry/dev/onboarding/allowed-email-domains" in slack_resources
     assert "gitlab" not in slack_resources
-    assert len(json.loads(slack_resources)) == 2
+    assert len(json.loads(slack_resources)) == 3
 
     slack_role_logical_id = _function_role_logical_id(
         template,
@@ -413,7 +421,8 @@ def test_application_stack_configures_optional_gitlab_ca_bundle_access() -> None
     assert "parameter/foundry/dev/gitlab/base-url" in resources
     assert "parameter/foundry/dev/gitlab/api-token" in resources
     assert "parameter/foundry/dev/gitlab/ca-bundle" in resources
-    assert len(json.loads(resources)) == 3
+    assert "parameter/foundry/dev/onboarding/allowed-email-domains" in resources
+    assert len(json.loads(resources)) == 4
 
 
 def test_application_stack_configures_development_onboarding_queues() -> None:
